@@ -5,7 +5,7 @@ GO ?= go
 APP_ENV ?= local
 CONFIG_FILE ?=
 BUF_IMAGE ?= bufbuild/buf:1.59.0
-LINT_IMAGE ?= golangci/golangci-lint:v1.64.8
+LINT_IMAGE ?= golangci/golangci-lint:v2.12.2
 
 BUF_BIN := $(shell if [ -x "$(LOCAL_BIN)/buf" ]; then echo "$(LOCAL_BIN)/buf"; else command -v buf 2>/dev/null; fi)
 LINT_BIN := $(shell if [ -x "$(LOCAL_BIN)/golangci-lint" ]; then echo "$(LOCAL_BIN)/golangci-lint"; else command -v golangci-lint 2>/dev/null; fi)

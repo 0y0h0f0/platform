@@ -39,17 +39,17 @@ func setupRedis(t *testing.T) string {
 }
 
 func TestDefaultConfig(t *testing.T) {
-	os.Setenv("USER_SERVICE_ADDR", "localhost:9999")
-	os.Setenv("JWT_SECRET", "valid-secret-long-enough-for-hs256-algorithm-ok")
-	os.Setenv("INTERNAL_TOKEN", "valid-token-long-enough-for-testing")
-	os.Setenv("REDIS_HOST", "redis.example.com")
-	os.Setenv("REDIS_PORT", "9999")
+	_ = os.Setenv("USER_SERVICE_ADDR", "localhost:9999")
+	_ = os.Setenv("JWT_SECRET", "valid-secret-long-enough-for-hs256-algorithm-ok")
+	_ = os.Setenv("INTERNAL_TOKEN", "valid-token-long-enough-for-testing")
+	_ = os.Setenv("REDIS_HOST", "redis.example.com")
+	_ = os.Setenv("REDIS_PORT", "9999")
 	t.Cleanup(func() {
-		os.Unsetenv("USER_SERVICE_ADDR")
-		os.Unsetenv("JWT_SECRET")
-		os.Unsetenv("INTERNAL_TOKEN")
-		os.Unsetenv("REDIS_HOST")
-		os.Unsetenv("REDIS_PORT")
+		_ = os.Unsetenv("USER_SERVICE_ADDR")
+		_ = os.Unsetenv("JWT_SECRET")
+		_ = os.Unsetenv("INTERNAL_TOKEN")
+		_ = os.Unsetenv("REDIS_HOST")
+		_ = os.Unsetenv("REDIS_PORT")
 	})
 
 	cfg := gwserver.DefaultConfig()
@@ -69,12 +69,12 @@ func TestDefaultConfig_Defaults(t *testing.T) {
 	saved := map[string]string{}
 	for _, k := range keys {
 		saved[k] = os.Getenv(k)
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 	t.Cleanup(func() {
 		for k, v := range saved {
 			if v != "" {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 		}
 	})

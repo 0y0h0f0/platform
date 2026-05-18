@@ -38,7 +38,7 @@ func TestNewClients_Interceptor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClients: %v", err)
 	}
-	defer clients.Close()
+	defer func() { _ = clients.Close() }()
 
 	// Make a real RPC call to exercise the interceptor
 	ctx := context.Background()
@@ -84,5 +84,5 @@ func TestNewClients_WithTransportCredentials(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient: %v", err)
 	}
-	conn.Close()
+	_ = conn.Close()
 }

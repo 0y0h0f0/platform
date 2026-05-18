@@ -9,7 +9,7 @@ func TestNew_NoDB(t *testing.T) {
 	db, err := New("host=127.0.0.1 port=19999 user=test dbname=test connect_timeout=1")
 	if err == nil {
 		sqlDB, _ := db.DB()
-		sqlDB.Close()
+		_ = sqlDB.Close()
 		return
 	}
 }

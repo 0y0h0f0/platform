@@ -62,7 +62,7 @@ func setupDBForServer(t *testing.T) string {
 	}
 
 	sqlDB, _ := db.DB()
-	sqlDB.Close()
+	_ = sqlDB.Close()
 
 	return pgDSN
 }
@@ -104,13 +104,13 @@ func setupRedisForServer(t *testing.T) string {
 }
 
 func TestDefaultConfig(t *testing.T) {
-	os.Setenv("GRPC_ADDR", ":9991")
-	os.Setenv("JWT_SECRET", "test-jwt-secret-long-enough-for-hs256-algorithm")
-	os.Setenv("INTERNAL_TOKEN", "test-internal-token-long-enough-for-testing")
+	_ = os.Setenv("GRPC_ADDR", ":9991")
+	_ = os.Setenv("JWT_SECRET", "test-jwt-secret-long-enough-for-hs256-algorithm")
+	_ = os.Setenv("INTERNAL_TOKEN", "test-internal-token-long-enough-for-testing")
 	t.Cleanup(func() {
-		os.Unsetenv("GRPC_ADDR")
-		os.Unsetenv("JWT_SECRET")
-		os.Unsetenv("INTERNAL_TOKEN")
+		_ = os.Unsetenv("GRPC_ADDR")
+		_ = os.Unsetenv("JWT_SECRET")
+		_ = os.Unsetenv("INTERNAL_TOKEN")
 	})
 
 	cfg := server.DefaultConfig()
@@ -130,12 +130,12 @@ func TestDefaultConfig_Defaults(t *testing.T) {
 	saved := map[string]string{}
 	for _, k := range keys {
 		saved[k] = os.Getenv(k)
-		os.Unsetenv(k)
+		_ = os.Unsetenv(k)
 	}
 	t.Cleanup(func() {
 		for k, v := range saved {
 			if v != "" {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 		}
 	})
@@ -279,8 +279,8 @@ func createTempWeakPasswords(t *testing.T) string {
 	if _, err := f.WriteString(content); err != nil {
 		t.Fatalf("write temp file: %v", err)
 	}
-	f.Close()
-	t.Cleanup(func() { os.Remove(f.Name()) })
+	_ = f.Close()
+	t.Cleanup(func() { _ = os.Remove(f.Name()) })
 	return f.Name()
 }
 
@@ -334,7 +334,7 @@ func TestNewAuthInterceptor_InvalidToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grpc dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Call without x-internal-token metadata
 	client := userv1.NewUserServiceClient(conn)
@@ -376,7 +376,7 @@ func TestNewAuthInterceptor_InvalidInternalToken(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grpc dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Call with wrong x-internal-token
 	md := metadata.New(map[string]string{"x-internal-token": "wrong-token"})
@@ -429,7 +429,7 @@ func TestNewAuthInterceptor_MissingUserIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("grpc dial: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Call GetUser (non-anonymous) without x-user-id
 	md := metadata.New(map[string]string{"x-internal-token": tok})
