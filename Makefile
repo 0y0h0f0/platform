@@ -17,7 +17,7 @@ BUF := $(BUF_BIN)
 endif
 
 ifeq ($(LINT_BIN),)
-LINT := docker run --rm -v "$(CURDIR):/app" -w /app $(LINT_IMAGE)
+LINT := docker run --rm -v "$(CURDIR):/app" -w /app $(LINT_IMAGE) golangci-lint
 else
 LINT := $(LINT_BIN)
 endif
