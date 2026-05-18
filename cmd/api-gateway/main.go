@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
 
-	"task-platform/pkg/xhttp"
+	gwserver "task-platform/internal/gateway/server"
 	"task-platform/pkg/xlog"
 	"task-platform/pkg/xtrace"
 )
@@ -54,7 +54,16 @@ func run() error {
 	}
 
 	ready := &atomic.Bool{}
-	engine := xhttp.NewEngine(cfg.ServiceName, ready)
+	engine, cleanup, err := gwserver.NewEngine(cfg.ServiceName, ready, logger, gwserver.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("create engine: %w", err)
+	}
+	defer func() {
+		if err := cleanup(); err != nil {
+			logger.Error("cleanup failed", zap.Error(err))
+		}
+	}()
+
 	server := &http.Server{
 		Addr:    cfg.HTTPAddr,
 		Handler: engine,

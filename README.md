@@ -2,7 +2,7 @@
 
 `task-platform` is a campus-recruitment backend scaffold built from `plan.md`.
 
-Current status: Phase 0 bootstrap.
+Current status: Phase 1 complete (user service with auth).
 
 ## Included
 
@@ -29,8 +29,8 @@ Default ports:
 - `api-gateway`: HTTP `:8080`
 - `user-service`: gRPC `:9091`, admin HTTP `:8081`
 - `task-service`: gRPC `:9092`, admin HTTP `:8082`
-- PostgreSQL: `:5432`
-- Redis: `:6379`
+- PostgreSQL: `:5433`
+- Redis: `:6380`
 
 ## Notes
 

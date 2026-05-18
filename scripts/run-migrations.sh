@@ -13,8 +13,27 @@ postgres_user="${POSTGRES_USER:-postgres}"
 postgres_password="${POSTGRES_PASSWORD:-postgres}"
 postgres_db="${POSTGRES_DB:-task_platform}"
 postgres_host="${POSTGRES_HOST:-127.0.0.1}"
-postgres_port="${POSTGRES_PORT:-5432}"
+postgres_port="${POSTGRES_PORT:-5433}"
 migrate_image="${MIGRATE_IMAGE:-migrate/migrate:v4.18.3}"
+
+wait_for_postgres() {
+  local max_attempts=${MIGRATE_WAIT_ATTEMPTS:-30}
+  local attempt=1
+  echo -n "waiting for postgres ${postgres_host}:${postgres_port}"
+  while [ $attempt -le $max_attempts ]; do
+    if timeout 1 bash -c "echo > /dev/tcp/${postgres_host}/${postgres_port}" 2>/dev/null; then
+      echo " ready"
+      return 0
+    fi
+    echo -n "."
+    sleep 2
+    attempt=$((attempt + 1))
+  done
+  echo " timeout"
+  return 1
+}
+
+wait_for_postgres || echo "WARNING: postgres not reachable, migration may fail"
 
 run_schema_migration() {
   local schema="$1"

@@ -31,6 +31,7 @@ proto-lint:
 	$(BUF) lint
 
 run/%:
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	APP_ENV=$(APP_ENV) CONFIG_FILE="$(CONFIG_FILE)" $(GO) run ./cmd/$*
 
 test:
