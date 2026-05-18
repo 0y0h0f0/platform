@@ -1,0 +1,307 @@
+syntax = "proto3";
+
+package task.v1;
+
+option go_package = "task-platform/gen/go/task/v1;taskv1";
+
+service TaskService {
+  rpc CreateProject(CreateProjectRequest) returns (CreateProjectResponse);
+  rpc UpdateProject(UpdateProjectRequest) returns (UpdateProjectResponse);
+  rpc ArchiveProject(ArchiveProjectRequest) returns (ArchiveProjectResponse);
+  rpc UnarchiveProject(UnarchiveProjectRequest) returns (UnarchiveProjectResponse);
+  rpc TransferProjectOwnership(TransferProjectOwnershipRequest) returns (TransferProjectOwnershipResponse);
+  rpc ListProjects(ListProjectsRequest) returns (ListProjectsResponse);
+  rpc GetProject(GetProjectRequest) returns (GetProjectResponse);
+  rpc AddProjectMember(AddProjectMemberRequest) returns (AddProjectMemberResponse);
+  rpc RemoveProjectMember(RemoveProjectMemberRequest) returns (RemoveProjectMemberResponse);
+  rpc UpdateProjectMemberRole(UpdateProjectMemberRoleRequest) returns (UpdateProjectMemberRoleResponse);
+  rpc LeaveProject(LeaveProjectRequest) returns (LeaveProjectResponse);
+  rpc ListProjectMembers(ListProjectMembersRequest) returns (ListProjectMembersResponse);
+  rpc CheckProjectMember(CheckProjectMemberRequest) returns (CheckProjectMemberResponse);
+  rpc CreateTask(CreateTaskRequest) returns (CreateTaskResponse);
+  rpc UpdateTask(UpdateTaskRequest) returns (UpdateTaskResponse);
+  rpc DeleteTask(DeleteTaskRequest) returns (DeleteTaskResponse);
+  rpc GetTask(GetTaskRequest) returns (GetTaskResponse);
+  rpc ListTasks(ListTasksRequest) returns (ListTasksResponse);
+  rpc AssignTask(AssignTaskRequest) returns (AssignTaskResponse);
+  rpc ChangeTaskStatus(ChangeTaskStatusRequest) returns (ChangeTaskStatusResponse);
+  rpc CreateTaskComment(CreateTaskCommentRequest) returns (CreateTaskCommentResponse);
+  rpc DeleteTaskComment(DeleteTaskCommentRequest) returns (DeleteTaskCommentResponse);
+  rpc ListTaskComments(ListTaskCommentsRequest) returns (ListTaskCommentsResponse);
+  rpc ListOperationLogs(ListOperationLogsRequest) returns (ListOperationLogsResponse);
+}
+
+message CreateProjectRequest {
+  string name = 1;
+  string description = 2;
+}
+
+message CreateProjectResponse {
+  Project project = 1;
+}
+
+message UpdateProjectRequest {
+  string project_id = 1;
+  string name = 2;
+  string description = 3;
+  int64 version = 4;
+}
+
+message UpdateProjectResponse {
+  Project project = 1;
+}
+
+message ArchiveProjectRequest {
+  string project_id = 1;
+}
+
+message ArchiveProjectResponse {
+  Project project = 1;
+}
+
+message UnarchiveProjectRequest {
+  string project_id = 1;
+}
+
+message UnarchiveProjectResponse {
+  Project project = 1;
+}
+
+message TransferProjectOwnershipRequest {
+  string project_id = 1;
+  string target_user_id = 2;
+}
+
+message TransferProjectOwnershipResponse {
+  Project project = 1;
+}
+
+message ListProjectsRequest {
+  int32 limit = 1;
+  int32 offset = 2;
+  bool include_archived = 3;
+}
+
+message ListProjectsResponse {
+  repeated Project projects = 1;
+}
+
+message GetProjectRequest {
+  string project_id = 1;
+}
+
+message GetProjectResponse {
+  Project project = 1;
+}
+
+message AddProjectMemberRequest {
+  string project_id = 1;
+  string user_id = 2;
+  int32 role = 3;
+}
+
+message AddProjectMemberResponse {
+  ProjectMember member = 1;
+}
+
+message RemoveProjectMemberRequest {
+  string project_id = 1;
+  string user_id = 2;
+}
+
+message RemoveProjectMemberResponse {
+  ProjectMember member = 1;
+}
+
+message UpdateProjectMemberRoleRequest {
+  string project_id = 1;
+  string user_id = 2;
+  int32 role = 3;
+}
+
+message UpdateProjectMemberRoleResponse {
+  ProjectMember member = 1;
+}
+
+message LeaveProjectRequest {
+  string project_id = 1;
+}
+
+message LeaveProjectResponse {
+  ProjectMember member = 1;
+}
+
+message ListProjectMembersRequest {
+  string project_id = 1;
+}
+
+message ListProjectMembersResponse {
+  repeated ProjectMember members = 1;
+}
+
+message CheckProjectMemberRequest {
+  string project_id = 1;
+  string user_id = 2;
+}
+
+message CheckProjectMemberResponse {
+  bool is_member = 1;
+  int32 role = 2;
+}
+
+message CreateTaskRequest {
+  string project_id = 1;
+  string title = 2;
+  string content = 3;
+}
+
+message CreateTaskResponse {
+  Task task = 1;
+}
+
+message UpdateTaskRequest {
+  string task_id = 1;
+  string title = 2;
+  string content = 3;
+  int32 priority = 4;
+  string due_time = 5;
+  int64 version = 6;
+}
+
+message UpdateTaskResponse {
+  Task task = 1;
+}
+
+message DeleteTaskRequest {
+  string task_id = 1;
+}
+
+message DeleteTaskResponse {
+  Task task = 1;
+}
+
+message GetTaskRequest {
+  string task_id = 1;
+}
+
+message GetTaskResponse {
+  Task task = 1;
+}
+
+message ListTasksRequest {
+  string project_id = 1;
+  int32 limit = 2;
+  string cursor = 3;
+  int32 status = 4;
+  string assignee_id = 5;
+  string keyword = 6;
+}
+
+message ListTasksResponse {
+  repeated Task tasks = 1;
+  string next_cursor = 2;
+}
+
+message AssignTaskRequest {
+  string task_id = 1;
+  string assignee_id = 2;
+}
+
+message AssignTaskResponse {
+  Task task = 1;
+}
+
+message ChangeTaskStatusRequest {
+  string task_id = 1;
+  int32 status = 2;
+  int64 version = 3;
+}
+
+message ChangeTaskStatusResponse {
+  Task task = 1;
+}
+
+message CreateTaskCommentRequest {
+  string task_id = 1;
+  string content = 2;
+}
+
+message CreateTaskCommentResponse {
+  TaskComment comment = 1;
+}
+
+message DeleteTaskCommentRequest {
+  string task_id = 1;
+  string comment_id = 2;
+}
+
+message DeleteTaskCommentResponse {
+  TaskComment comment = 1;
+}
+
+message ListTaskCommentsRequest {
+  string task_id = 1;
+  int32 limit = 2;
+  string after_id = 3;
+}
+
+message ListTaskCommentsResponse {
+  repeated TaskComment comments = 1;
+}
+
+message ListOperationLogsRequest {
+  string project_id = 1;
+  string task_id = 2;
+  int32 limit = 3;
+  string cursor = 4;
+}
+
+message ListOperationLogsResponse {
+  repeated OperationLog logs = 1;
+  string next_cursor = 2;
+}
+
+message Project {
+  string id = 1;
+  string name = 2;
+  string description = 3;
+  string owner_id = 4;
+  int32 status = 5;
+  int64 version = 6;
+}
+
+message ProjectMember {
+  string id = 1;
+  string project_id = 2;
+  string user_id = 3;
+  int32 role = 4;
+}
+
+message Task {
+  string id = 1;
+  string project_id = 2;
+  string title = 3;
+  string content = 4;
+  int32 status = 5;
+  int32 priority = 6;
+  string assignee_id = 7;
+  string creator_id = 8;
+  string due_time = 9;
+  int64 version = 10;
+}
+
+message TaskComment {
+  string id = 1;
+  string task_id = 2;
+  string user_id = 3;
+  string content = 4;
+}
+
+message OperationLog {
+  string id = 1;
+  string project_id = 2;
+  string task_id = 3;
+  string operator_id = 4;
+  string action = 5;
+  string detail_json = 6;
+}

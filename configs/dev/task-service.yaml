@@ -1,0 +1,7 @@
+service_name: task-service
+env: dev
+grpc_addr: ":9092"
+admin_addr: ":8082"
+reflection_enabled: false
+shutdown_timeout_seconds: 10
+

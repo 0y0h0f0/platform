@@ -1,0 +1,5 @@
+service_name: api-gateway
+env: local
+http_addr: ":8080"
+shutdown_timeout_seconds: 10
+

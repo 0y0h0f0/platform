@@ -1,0 +1,7 @@
+service_name: user-service
+env: local
+grpc_addr: ":9091"
+admin_addr: ":8081"
+reflection_enabled: true
+shutdown_timeout_seconds: 10
+
