@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 	grpc_health_v1 "google.golang.org/grpc/health/grpc_health_v1"
 
-	"task-platform/pkg/xgrpc"
+	"task-platform/internal/task/server"
 	"task-platform/pkg/xhttp"
 	"task-platform/pkg/xlog"
 	"task-platform/pkg/xtrace"
@@ -63,7 +63,10 @@ func run() error {
 		return fmt.Errorf("listen grpc: %w", err)
 	}
 
-	serverBundle := xgrpc.NewServer(cfg.ReflectionEnabled)
+	serverBundle, err := server.NewGRPCServer(server.DefaultConfig())
+	if err != nil {
+		return fmt.Errorf("create grpc server: %w", err)
+	}
 	ready := &atomic.Bool{}
 	adminServer := &http.Server{
 		Addr:    cfg.AdminAddr,

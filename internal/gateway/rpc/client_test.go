@@ -34,7 +34,7 @@ func TestNewClients_Interceptor(t *testing.T) {
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
-	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), "test-token")
+	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), lis.Addr().String(), "test-token")
 	if err != nil {
 		t.Fatalf("NewClients: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestNewClients_Success(t *testing.T) {
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
-	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), "test-token")
+	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), lis.Addr().String(), "test-token")
 	if err != nil {
 		t.Fatalf("NewClients: %v", err)
 	}
@@ -74,6 +74,56 @@ func TestNewClients_Success(t *testing.T) {
 	if err := clients.Close(); err != nil {
 		t.Errorf("Close: %v", err)
 	}
+}
+
+func TestNewClients_InterceptorPropagatesAllMetadata(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := grpc.NewServer()
+	userv1.RegisterUserServiceServer(srv, &echoUserServer{})
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), lis.Addr().String(), "test-token")
+	if err != nil {
+		t.Fatalf("NewClients: %v", err)
+	}
+	defer func() { _ = clients.Close() }()
+
+	ctx := context.Background()
+	ctx = context.WithValue(ctx, middleware.CtxKeyRequestID, "req-456")
+	ctx = context.WithValue(ctx, middleware.CtxKeyUserID, "user-2")
+	ctx = context.WithValue(ctx, middleware.CtxKeyUsername, "bob")
+
+	resp, err := clients.UserClient.GetUser(ctx, &userv1.GetUserRequest{UserId: "user-2"})
+	if err != nil {
+		t.Fatalf("GetUser: %v", err)
+	}
+	if resp.User.Username != "echo" {
+		t.Errorf("username = %s, want echo", resp.User.Username)
+	}
+}
+
+func TestNewClients_CloseCleansUpBothConns(t *testing.T) {
+	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	srv := grpc.NewServer()
+	go func() { _ = srv.Serve(lis) }()
+	t.Cleanup(srv.Stop)
+
+	clients, err := rpc.NewClients(context.Background(), lis.Addr().String(), lis.Addr().String(), "test-token")
+	if err != nil {
+		t.Fatalf("NewClients: %v", err)
+	}
+	if err := clients.Close(); err != nil {
+		t.Errorf("Close: %v", err)
+	}
+	// Second close should be safe (idempotent or return error)
+	_ = clients.Close()
 }
 
 func TestNewClients_WithTransportCredentials(t *testing.T) {

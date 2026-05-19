@@ -8,16 +8,39 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 
+	taskv1 "task-platform/gen/go/task/v1"
 	userv1 "task-platform/gen/go/user/v1"
 	"task-platform/internal/gateway/middleware"
 )
 
 type Clients struct {
 	UserClient userv1.UserServiceClient
-	conn       *grpc.ClientConn
+	TaskClient taskv1.TaskServiceClient
+	userConn   *grpc.ClientConn
+	taskConn   *grpc.ClientConn
 }
 
-func NewClients(_ context.Context, userServiceAddr, internalToken string) (*Clients, error) {
+func NewClients(_ context.Context, userServiceAddr, taskServiceAddr, internalToken string) (*Clients, error) {
+	userConn, err := dial(userServiceAddr, internalToken)
+	if err != nil {
+		return nil, fmt.Errorf("dial user-service: %w", err)
+	}
+
+	taskConn, err := dial(taskServiceAddr, internalToken)
+	if err != nil {
+		_ = userConn.Close()
+		return nil, fmt.Errorf("dial task-service: %w", err)
+	}
+
+	return &Clients{
+		UserClient: userv1.NewUserServiceClient(userConn),
+		TaskClient: taskv1.NewTaskServiceClient(taskConn),
+		userConn:   userConn,
+		taskConn:   taskConn,
+	}, nil
+}
+
+func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 	interceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		md, _ := metadata.FromOutgoingContext(ctx)
 		if md == nil {
@@ -36,20 +59,16 @@ func NewClients(_ context.Context, userServiceAddr, internalToken string) (*Clie
 		return invoker(metadata.NewOutgoingContext(ctx, md), method, req, reply, cc, opts...)
 	}
 
-	conn, err := grpc.NewClient(userServiceAddr,
+	return grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithUnaryInterceptor(interceptor),
 	)
-	if err != nil {
-		return nil, fmt.Errorf("dial user-service: %w", err)
-	}
-
-	return &Clients{
-		UserClient: userv1.NewUserServiceClient(conn),
-		conn:       conn,
-	}, nil
 }
 
 func (c *Clients) Close() error {
-	return c.conn.Close()
+	if err := c.userConn.Close(); err != nil {
+		_ = c.taskConn.Close()
+		return err
+	}
+	return c.taskConn.Close()
 }

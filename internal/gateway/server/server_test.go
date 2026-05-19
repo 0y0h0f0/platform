@@ -195,6 +195,7 @@ func TestNewEngine_Success(t *testing.T) {
 	ready := &atomic.Bool{}
 	engine, cleanup, err := gwserver.NewEngine("test", ready, logger, gwserver.Config{
 		UserServiceAddr: lis.Addr().String(),
+		TaskServiceAddr: lis.Addr().String(),
 		RedisAddr:       redisAddr,
 		RedisPassword:   "",
 		JWTSecret:       "valid-secret-long-enough-for-hs256-algorithm-32chars",

@@ -23,7 +23,9 @@ import (
 	"gorm.io/gorm"
 
 	userv1 "task-platform/gen/go/user/v1"
+	taskv1 "task-platform/gen/go/task/v1"
 	"task-platform/internal/user/server"
+	taskserver "task-platform/internal/task/server"
 )
 
 const (
@@ -32,13 +34,17 @@ const (
 )
 
 var (
-	grpcClient  userv1.UserServiceClient
-	grpcConn    *grpc.ClientConn
-	pgContainer *tcpostgres.PostgresContainer
-	redisC      testcontainers.Container
-	grpcSrv     *grpc.Server
-	grpcLisAddr string
-	redisAddr   string
+	grpcClient      userv1.UserServiceClient
+	taskGrpcClient  taskv1.TaskServiceClient
+	grpcConn        *grpc.ClientConn
+	taskGrpcConn    *grpc.ClientConn
+	pgContainer     *tcpostgres.PostgresContainer
+	redisC          testcontainers.Container
+	grpcSrv         *grpc.Server
+	taskGrpcSrv     *grpc.Server
+	grpcLisAddr     string
+	taskGrpcLisAddr string
+	redisAddr       string
 )
 
 func TestMain(m *testing.M) {
@@ -89,7 +95,16 @@ func runTests(m *testing.M) (int, error) {
 	}
 
 	if err := db.Exec(string(migrationSQL)).Error; err != nil {
-		return 0, fmt.Errorf("run migration: %w", err)
+		return 0, fmt.Errorf("run user_svc migration: %w", err)
+	}
+
+	taskMigrationPath := filepath.Join(rootDir, "migrations", "task_svc", "000001_init.up.sql")
+	taskMigrationSQL, err := os.ReadFile(taskMigrationPath)
+	if err != nil {
+		return 0, fmt.Errorf("read task_svc migration at %s: %w", taskMigrationPath, err)
+	}
+	if err := db.Exec(string(taskMigrationSQL)).Error; err != nil {
+		return 0, fmt.Errorf("run task_svc migration: %w", err)
 	}
 
 	sqlDB, _ := db.DB()
@@ -161,6 +176,46 @@ func runTests(m *testing.M) (int, error) {
 	}
 	defer grpcConn.Close()
 	grpcClient = userv1.NewUserServiceClient(grpcConn)
+
+	// Start task-service gRPC server
+	taskSrvBundle, err := taskserver.NewGRPCServer(taskserver.Config{
+		GRPCAddr:          "127.0.0.1:0",
+		AdminAddr:         "127.0.0.1:0",
+		ReflectionEnabled: false,
+		PostgresDSN:       pgDSN,
+		InternalToken:     testInternalToken,
+		UserServiceAddr:   grpcLisAddr,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("create task grpc server: %w", err)
+	}
+
+	taskLis, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, fmt.Errorf("listen task: %w", err)
+	}
+	taskGrpcSrv = taskSrvBundle.GRPC
+	taskGrpcLisAddr = taskLis.Addr().String()
+
+	go taskGrpcSrv.Serve(taskLis)
+
+	// Create task-service gRPC client
+	taskGrpcConn, err = grpc.NewClient(taskLis.Addr().String(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithUnaryInterceptor(func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+			md, _ := metadata.FromOutgoingContext(ctx)
+			if md == nil {
+				md = metadata.New(nil)
+			}
+			md.Set("x-internal-token", testInternalToken)
+			return invoker(metadata.NewOutgoingContext(ctx, md), method, req, reply, cc, opts...)
+		}),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("create task grpc client: %w", err)
+	}
+	defer taskGrpcConn.Close()
+	taskGrpcClient = taskv1.NewTaskServiceClient(taskGrpcConn)
 
 	return m.Run(), nil
 }

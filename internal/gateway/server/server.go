@@ -19,6 +19,7 @@ import (
 
 type Config struct {
 	UserServiceAddr string
+	TaskServiceAddr string
 	RedisAddr       string
 	RedisPassword   string
 	JWTSecret       string
@@ -28,6 +29,7 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		UserServiceAddr: envOrDefault("USER_SERVICE_ADDR", "127.0.0.1:9091"),
+		TaskServiceAddr: envOrDefault("TASK_SERVICE_ADDR", "127.0.0.1:9092"),
 		RedisAddr:       fmt.Sprintf("%s:%s", envOrDefault("REDIS_HOST", "127.0.0.1"), envOrDefault("REDIS_PORT", "6380")),
 		RedisPassword:   os.Getenv("REDIS_PASSWORD"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
@@ -48,7 +50,7 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 		return nil, nil, fmt.Errorf("connect redis: %w", err)
 	}
 
-	clients, err := rpc.NewClients(context.Background(), cfg.UserServiceAddr, cfg.InternalToken)
+	clients, err := rpc.NewClients(context.Background(), cfg.UserServiceAddr, cfg.TaskServiceAddr, cfg.InternalToken)
 	if err != nil {
 		return nil, nil, fmt.Errorf("create rpc clients: %w", err)
 	}
@@ -71,6 +73,7 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 
 	authH := handler.NewAuthHandler(clients.UserClient, rdb)
 	userH := handler.NewUserHandler(clients.UserClient)
+	projectH := handler.NewProjectHandler(clients.TaskClient)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -83,6 +86,21 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 		users := v1.Group("/users")
 		{
 			users.GET("/me", userH.Me)
+		}
+		projects := v1.Group("/projects")
+		{
+			projects.POST("", projectH.Create)
+			projects.GET("", projectH.List)
+			projects.GET("/:id", projectH.Get)
+			projects.PUT("/:id", projectH.Update)
+			projects.POST("/:id/archive", projectH.Archive)
+			projects.POST("/:id/unarchive", projectH.Unarchive)
+			projects.POST("/:id/transfer", projectH.Transfer)
+			projects.POST("/:id/members", projectH.AddMember)
+			projects.GET("/:id/members", projectH.ListMembers)
+			projects.PUT("/:id/members/:userId", projectH.UpdateMemberRole)
+			projects.DELETE("/:id/members/:userId", projectH.RemoveMember)
+			projects.POST("/:id/members/me/leave", projectH.Leave)
 		}
 	}
 

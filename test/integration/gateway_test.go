@@ -26,6 +26,7 @@ func newGatewayEngine(t *testing.T) *http.Client {
 
 	cfg := gwserver.Config{
 		UserServiceAddr: grpcLisAddr,
+		TaskServiceAddr: taskGrpcLisAddr,
 		RedisAddr:       redisAddr,
 		RedisPassword:   "",
 		JWTSecret:       testJWTSecret,

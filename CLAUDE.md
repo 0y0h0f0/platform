@@ -4,23 +4,27 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Status
 
-This repo is **planning-stage**. The only file is `plan.md`, a detailed Chinese-language spec for a campus-recruitment ("校招") portfolio backend called **团队任务协作平台 / Team Task Collaboration Platform**. No Go module, no source code, no `docker-compose.yml`, no protos exist yet — they will be created following `plan.md`.
+**Phase 0 (项目初始化) — COMPLETE.**  
+**Phase 1 (用户服务) — COMPLETE.**  
+Next: **Phase 2 (项目管理).**
 
-When starting implementation, follow the execution order in `plan.md` §17:
-1. Initialize repo and directory structure (Go Module + `.github/workflows/` + `.env.example`)
-2. Write `deploy/docker-compose.yml` to bring up PostgreSQL + Redis
-3. Configure `buf.yaml` + `buf.gen.yaml`; define `user.proto` and `task.proto` skeletons and generate code
-4. Scaffold empty `api-gateway`, `user-service`, `task-service` (compiles + starts)
-5. Land `pkg/xerr` error-code table, `golangci-lint` config, GitHub Actions workflow
-6. Wire `/metrics` (dummy counter), `/healthz`, `/readyz`, graceful shutdown in each service
-7. Implement `Register → Login → Logout → Me` (JWT, token blacklist, `BatchGetUsers`)
-8. Implement `CreateProject → AddMember → ArchiveProject → TransferOwnership` (full permission matrix)
+The repo is a working Go 1.26 microservices project. All three services (`api-gateway`, `user-service`, `task-service`) compile and start. The `user-service` is fully implemented with Register/Login/GetUser/BatchGetUsers gRPC endpoints. The `api-gateway` exposes the full auth flow over HTTP (register, login, logout, me) with JWT + Redis token blacklist. The `task-service` is still an empty skeleton.
+
+Key metrics as of 2026-05-19:
+- `go build ./cmd/...` — all services compile
+- `make lint` — 0 issues (golangci-lint v2.12.2, Go 1.26.3)
+- `go test ./...` — all passing (unit + integration)
+- Coverage — 88.3% (`./internal/... ./pkg/...`)
+- Integration tests — 25 tests (gateway + user-service), real PG16 + Redis7 via testcontainers
+
+Remaining execution order from `plan.md` §17:
+8. ~~Implement CreateProject → AddMember → ArchiveProject → TransferOwnership~~ (Phase 2, next)
 9. Implement `CreateTask → AssignTask → ChangeTaskStatus → ListTasks` (optimistic lock, cursor pagination)
 10. Add comments, operation logs (async worker), cache invalidation, rate limiting, idempotency
 11. Enrich metrics + trace, load test, Grafana screenshots
 12. Finalize README, Postman Collection, interview script
 
-## Planned Architecture
+## Architecture (from `plan.md` §4)
 
 External clients speak HTTP/JSON; internal services speak gRPC. The shape is fixed in `plan.md` §4 and should be preserved:
 
@@ -57,9 +61,38 @@ Key architectural rules from `plan.md`:
 Recovery → RequestID → AccessLog → CORS → RateLimit(IP) → JWT → RateLimit(user) → Handler
 ```
 
+**Implemented in `internal/gateway/server/server.go`.** All middlewares exist and are wired:
+- `RequestID` — generates/propagates `X-Request-ID`, injects into gin context
+- `AccessLog` — Zap JSON logging (method, path, status, latency, request-id)
+- `CORS` — permissive for local/dev (allows all origins); implemented in `internal/gateway/middleware/cors.go`
+- `RateLimitByIP` / `RateLimitByUser` — **noop stubs** (Phase 5 implementation); defined in `internal/gateway/middleware/ratelimit.go`
+- `Auth` — JWT validation + Redis blacklist check; skips public paths (`/api/v1/auth/register`, `/api/v1/auth/login`); implemented in `internal/gateway/middleware/auth.go`
+
 Parameter binding/validation happens inside handlers, not as a standalone Gin middleware. Inside a write handler: bind/validate first, then idempotency check — prevents invalid requests from consuming `Idempotency-Key` slots.
 
-## Planned Layout (`plan.md` §5)
+## Implemented: User Service (`internal/user/`)
+
+Four-layer architecture, all layers have tests:
+
+| Layer | Package | Status | Coverage |
+|-------|---------|--------|----------|
+| data | `internal/user/data/` | GORM model + UserRepository (Create/FindByAccount/FindByID/BatchFindByIDs) | 86.2% |
+| biz | `internal/user/biz/` | bcrypt, weak-password check, Register/Login/GetUser/BatchGetUsers(Redis-cached) | 87.2% |
+| service | `internal/user/service/` | gRPC UserServiceServer impl (Register/Login/GetUser/BatchGetUsers) | 81.5% |
+| server | `internal/user/server/` | DI wiring, gRPC server startup, auth interceptor (x-internal-token + x-user-id validation) | 94.9% |
+
+Config validation at startup: JWT_SECRET (≥32 chars, not placeholder), INTERNAL_TOKEN (≥16 chars, not placeholder), weak-passwords file must exist, DB must be reachable.
+
+## Implemented: API Gateway (`internal/gateway/`)
+
+| Package | Status | Coverage |
+|---------|--------|----------|
+| handler | Auth (Register/Login/Logout) + User (Me) HTTP handlers | 71.7% |
+| middleware | RequestID, AccessLog, CORS, Auth (JWT+blacklist), RateLimit stubs | 86.7% |
+| rpc | gRPC client factory with metadata interceptor (x-user-id, x-username, x-request-id, x-internal-token) | 93.8% |
+| server | DI wiring, middleware chain, route registration, Redis + JWT setup | 93.6% |
+
+## Layout (`plan.md` §5)
 
 ```
 task-platform/
@@ -91,7 +124,7 @@ Each business service follows the same four-layer split: `biz` (domain logic) �
 
 ## Tech Stack (fixed by `plan.md` §2.1)
 
-Go 1.23+ · Gin · gRPC + protobuf (proto3) · `buf` (lint + breaking-change + codegen) · PostgreSQL 16 · Redis 7 · GORM (`gorm.io/driver/postgres`) · pgx/v5 driver · `golang-migrate` · Viper (YAML + env-var override, multi-env dirs) · JWT HS256 · bcrypt (cost=10) · Zap (JSON, request_id-linked) · Prometheus + OpenTelemetry · Docker Compose · `go test` + `testify` + `httptest` + `testcontainers-go` (integration tests against real PG/Redis) · `golangci-lint` · GitHub Actions CI.
+Go 1.26 · Gin · gRPC + protobuf (proto3) · `buf` (lint + breaking-change + codegen) · PostgreSQL 16 · Redis 7 · GORM (`gorm.io/driver/postgres`) · pgx/v5 driver · `golang-migrate` · Viper (YAML + env-var override, multi-env dirs) · JWT HS256 · bcrypt (cost=10) · Zap (JSON, request_id-linked) · Prometheus + OpenTelemetry · Docker Compose · `go test` + `testify` + `httptest` + `testcontainers-go` (integration tests against real PG/Redis) · `golangci-lint` v2.12.2 (config `.golangci.yaml`) · GitHub Actions CI.
 
 Do not introduce alternatives (e.g. Echo, sqlx, MySQL, logrus, sqlc) without an explicit reason — the stack is part of the project's interview narrative.
 
@@ -113,21 +146,24 @@ Do not introduce alternatives (e.g. Echo, sqlx, MySQL, logrus, sqlc) without an 
 
 Pagination: projects use offset (`limit` default 20 max 50). Tasks use **cursor pagination** — cursor is base64url-encoded JSON containing `created_at`, `id`, `filter_hash`; server rejects a cursor whose `filter_hash` doesn't match the current filter params.
 
-## Commands (to be created during Phase 0)
+## Commands
 
-`plan.md` §10 Phase 0 commits the project to a `Makefile`. Expected targets:
+All Makefile targets are operational:
 - `make proto` — regenerate gRPC stubs via `buf generate`
-- `make run/<svc>` — run a service locally (parameterized)
-- `make test` — run all tests
-- `make lint` — run `golangci-lint`
-- `make migrate` — run database migrations
-- `docker-compose -f deploy/docker-compose.yml up` — bring up PostgreSQL + Redis (Phase 0 acceptance criterion)
+- `make proto-lint` — lint proto files via `buf lint`
+- `make run/<svc>` — run a service locally (sources `.env` if present, accepts `APP_ENV` and `CONFIG_FILE`)
+- `make test` — run all tests (`go test ./...`)
+- `make lint` — run `golangci-lint` (v2.12.2 via Docker or local binary, config in `.golangci.yaml`)
+- `make coverage` — generate coverage report via `scripts/coverage.sh`
+- `make migrate` — run database migrations (waits for PG readiness before executing)
+- `make up` / `make down` — start/stop PostgreSQL + Redis via `docker compose`
 
-Until `Makefile` exists, use the standard Go toolchain:
+Direct Go toolchain usage:
 - Build a service: `go build ./cmd/<service>`
 - Run tests: `go test ./...`
 - Run a single test: `go test ./internal/user/biz -run TestRegister`
-- Coverage: `go test -coverprofile=coverage.out ./internal/... ./pkg/...` (target ≥80%; `cmd/` and generated code excluded from the gate)
+- Run integration tests: `go test -tags=integration ./test/integration/ -v`
+- Coverage: `go test -coverprofile=coverage.out ./internal/... ./pkg/...` (threshold ≥80%; `cmd/` and generated code excluded)
 
 ## Domain Model Anchors (`plan.md` §6)
 
