@@ -1,8 +1,14 @@
 package server_test
 
 import (
+	"context"
 	"os"
 	"testing"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	taskserver "task-platform/internal/task/server"
 )
@@ -72,5 +78,62 @@ func TestNewGRPCServer_TokenTooShort(t *testing.T) {
 	})
 	if err == nil {
 		t.Error("expected error for short token")
+	}
+}
+
+// TestAuthInterceptor tests the auth interceptor via the exported test helper.
+func TestAuthInterceptor_ValidToken(t *testing.T) {
+	interceptor := taskserver.TestAuthInterceptor("test-token")
+	md := metadata.Pairs("x-internal-token", "test-token", "x-user-id", "user-1", "x-username", "alice")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	resp, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/task.v1.TaskService/CreateTask"}, func(ctx context.Context, req any) (any, error) {
+		return "ok", nil
+	})
+	if err != nil {
+		t.Fatalf("interceptor: %v", err)
+	}
+	if resp != "ok" {
+		t.Errorf("resp = %v", resp)
+	}
+}
+
+func TestAuthInterceptor_MissingMetadata(t *testing.T) {
+	interceptor := taskserver.TestAuthInterceptor("test-token")
+
+	_, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	})
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Unauthenticated {
+		t.Errorf("code = %s, want Unauthenticated", st.Code())
+	}
+}
+
+func TestAuthInterceptor_InvalidToken(t *testing.T) {
+	interceptor := taskserver.TestAuthInterceptor("test-token")
+	md := metadata.Pairs("x-internal-token", "wrong-token", "x-user-id", "user-1", "x-username", "alice")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	})
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Unauthenticated {
+		t.Errorf("code = %s, want Unauthenticated", st.Code())
+	}
+}
+
+func TestAuthInterceptor_MissingUserID(t *testing.T) {
+	interceptor := taskserver.TestAuthInterceptor("test-token")
+	md := metadata.Pairs("x-internal-token", "test-token")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/task.v1.TaskService/CreateTask"}, func(ctx context.Context, req any) (any, error) {
+		return nil, nil
+	})
+	st, _ := status.FromError(err)
+	if st.Code() != codes.Unauthenticated {
+		t.Errorf("code = %s, want Unauthenticated", st.Code())
 	}
 }

@@ -74,6 +74,7 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	authH := handler.NewAuthHandler(clients.UserClient, rdb)
 	userH := handler.NewUserHandler(clients.UserClient)
 	projectH := handler.NewProjectHandler(clients.TaskClient)
+	taskH := handler.NewTaskHandler(clients.TaskClient)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -101,6 +102,16 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 			projects.PUT("/:id/members/:userId", projectH.UpdateMemberRole)
 			projects.DELETE("/:id/members/:userId", projectH.RemoveMember)
 			projects.POST("/:id/members/me/leave", projectH.Leave)
+		}
+		tasks := v1.Group("/tasks")
+		{
+			tasks.POST("", taskH.Create)
+			tasks.GET("", taskH.List)
+			tasks.GET("/:id", taskH.Get)
+			tasks.PUT("/:id", taskH.Update)
+			tasks.DELETE("/:id", taskH.Delete)
+			tasks.POST("/:id/assign", taskH.Assign)
+			tasks.POST("/:id/status", taskH.ChangeStatus)
 		}
 	}
 

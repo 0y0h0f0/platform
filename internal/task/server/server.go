@@ -59,10 +59,12 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
+	taskRepo := data.NewTaskRepository(db)
 
 	userAdapter := &userClientAdapter{client: userClient}
 	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userAdapter)
-	svc := service.NewTaskService(b)
+	tb := biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userAdapter)
+	svc := service.NewTaskService(b, tb)
 
 	grpcServer := xgrpc.NewServer(cfg.ReflectionEnabled)
 
@@ -75,6 +77,8 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 
 	return grpcServer, nil
 }
+
+var TestAuthInterceptor = newAuthInterceptor
 
 func newAuthInterceptor(internalToken string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {

@@ -1,0 +1,205 @@
+package handler
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	taskv1 "task-platform/gen/go/task/v1"
+	"task-platform/internal/gateway/middleware"
+	"task-platform/pkg/xerr"
+)
+
+type TaskHandler struct {
+	taskClient taskv1.TaskServiceClient
+}
+
+func NewTaskHandler(taskClient taskv1.TaskServiceClient) *TaskHandler {
+	return &TaskHandler{taskClient: taskClient}
+}
+
+func (h *TaskHandler) Create(c *gin.Context) {
+	var req taskv1.CreateTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+
+	res, err := h.taskClient.CreateTask(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) List(c *gin.Context) {
+	projectID := c.Query("project_id")
+	if projectID == "" {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "project_id is required"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+
+	var req taskv1.ListTasksRequest
+	req.ProjectId = projectID
+	req.Cursor = c.Query("cursor")
+	req.AssigneeId = c.Query("assignee_id")
+	req.Keyword = c.Query("keyword")
+	req.Status = -1
+
+	if statusStr := c.Query("status"); statusStr != "" {
+		var status int32
+		if _, err := fmt.Sscanf(statusStr, "%d", &status); err == nil {
+			req.Status = status
+		}
+	}
+
+	if limitStr := c.Query("limit"); limitStr != "" {
+		var limit int32
+		if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
+			req.Limit = limit
+		}
+	} else {
+		req.Limit = 20
+	}
+
+	res, err := h.taskClient.ListTasks(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) Get(c *gin.Context) {
+	taskID := c.Param("id")
+
+	res, err := h.taskClient.GetTask(c.Request.Context(), &taskv1.GetTaskRequest{
+		TaskId: taskID,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) Update(c *gin.Context) {
+	taskID := c.Param("id")
+
+	var req taskv1.UpdateTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+	req.TaskId = taskID
+
+	res, err := h.taskClient.UpdateTask(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) Delete(c *gin.Context) {
+	taskID := c.Param("id")
+
+	res, err := h.taskClient.DeleteTask(c.Request.Context(), &taskv1.DeleteTaskRequest{
+		TaskId: taskID,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) Assign(c *gin.Context) {
+	taskID := c.Param("id")
+
+	var req taskv1.AssignTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+	req.TaskId = taskID
+
+	res, err := h.taskClient.AssignTask(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) ChangeStatus(c *gin.Context) {
+	taskID := c.Param("id")
+
+	var req taskv1.ChangeTaskStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+	req.TaskId = taskID
+
+	res, err := h.taskClient.ChangeTaskStatus(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}

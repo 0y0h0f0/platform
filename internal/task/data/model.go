@@ -48,3 +48,41 @@ func IsValidProjectName(name string) bool {
 	l := len(name)
 	return l >= 1 && l <= 100
 }
+
+type Task struct {
+	ID         string         `gorm:"column:id;primaryKey;default:gen_random_uuid()"`
+	ProjectID  string         `gorm:"column:project_id;not null"`
+	Title      string         `gorm:"column:title;size:200;not null"`
+	Content    string         `gorm:"column:content;not null;default:''"`
+	Status     int32          `gorm:"column:status;not null;default:0"`
+	Priority   int32          `gorm:"column:priority;not null;default:1"`
+	AssigneeID *string        `gorm:"column:assignee_id"`
+	CreatorID  string         `gorm:"column:creator_id;not null"`
+	DueTime    *string        `gorm:"column:due_time"`
+	Extra      string         `gorm:"column:extra;type:jsonb;not null;default:'{}'"`
+	Version    int64          `gorm:"column:version;not null;default:0"`
+	CreatedAt  time.Time      `gorm:"column:created_at;not null;autoCreateTime"`
+	UpdatedAt  time.Time      `gorm:"column:updated_at;not null;autoUpdateTime"`
+	DeletedAt  gorm.DeletedAt `gorm:"column:deleted_at;index"`
+}
+
+func (Task) TableName() string {
+	return "task_svc.tasks"
+}
+
+const (
+	TaskStatusTodo      int32 = 0
+	TaskStatusDoing     int32 = 1
+	TaskStatusDone      int32 = 2
+	TaskStatusCancelled int32 = 3
+
+	PriorityLow    int32 = 0
+	PriorityNormal int32 = 1
+	PriorityHigh   int32 = 2
+	PriorityUrgent int32 = 3
+)
+
+func IsValidTaskTitle(title string) bool {
+	l := len(title)
+	return l >= 1 && l <= 200
+}

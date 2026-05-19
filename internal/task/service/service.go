@@ -27,13 +27,24 @@ type projectBiz interface {
 	GetProject(ctx context.Context, projectID, callerID string) (*data.Project, error)
 }
 
-type TaskService struct {
-	taskv1.UnimplementedTaskServiceServer
-	biz projectBiz
+type taskBiz interface {
+	CreateTask(ctx context.Context, projectID, callerID, title, content string) (*data.Task, error)
+	UpdateTask(ctx context.Context, taskID, callerID, title, content string, priority int32, dueTime string, version int64) (*data.Task, error)
+	DeleteTask(ctx context.Context, taskID, callerID string) (*data.Task, error)
+	GetTask(ctx context.Context, taskID, callerID string) (*data.Task, error)
+	ListTasks(ctx context.Context, projectID, callerID string, filter biz.TaskListFilter) ([]*data.Task, string, error)
+	AssignTask(ctx context.Context, taskID, callerID, assigneeID string) (*data.Task, error)
+	ChangeTaskStatus(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error)
 }
 
-func NewTaskService(b *biz.ProjectBiz) *TaskService {
-	return &TaskService{biz: b}
+type TaskService struct {
+	taskv1.UnimplementedTaskServiceServer
+	biz     projectBiz
+	taskBiz taskBiz
+}
+
+func NewTaskService(b *biz.ProjectBiz, tb *biz.TaskBiz) *TaskService {
+	return &TaskService{biz: b, taskBiz: tb}
 }
 
 func (s *TaskService) CreateProject(ctx context.Context, req *taskv1.CreateProjectRequest) (*taskv1.CreateProjectResponse, error) {
@@ -175,4 +186,93 @@ func toProtoMember(m *data.ProjectMember) *taskv1.ProjectMember {
 		UserId:    m.UserID,
 		Role:      m.Role,
 	}
+}
+
+func toProtoTask(t *data.Task) *taskv1.Task {
+	task := &taskv1.Task{
+		Id:        t.ID,
+		ProjectId: t.ProjectID,
+		Title:     t.Title,
+		Content:   t.Content,
+		Status:    t.Status,
+		Priority:  t.Priority,
+		CreatorId: t.CreatorID,
+		Version:   t.Version,
+	}
+	if t.AssigneeID != nil {
+		task.AssigneeId = *t.AssigneeID
+	}
+	if t.DueTime != nil {
+		task.DueTime = *t.DueTime
+	}
+	return task
+}
+
+func (s *TaskService) CreateTask(ctx context.Context, req *taskv1.CreateTaskRequest) (*taskv1.CreateTaskResponse, error) {
+	task, err := s.taskBiz.CreateTask(ctx, req.ProjectId, getCallerID(ctx), req.Title, req.Content)
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.CreateTaskResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) UpdateTask(ctx context.Context, req *taskv1.UpdateTaskRequest) (*taskv1.UpdateTaskResponse, error) {
+	task, err := s.taskBiz.UpdateTask(ctx, req.TaskId, getCallerID(ctx), req.Title, req.Content, req.Priority, req.DueTime, req.Version)
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.UpdateTaskResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) DeleteTask(ctx context.Context, req *taskv1.DeleteTaskRequest) (*taskv1.DeleteTaskResponse, error) {
+	task, err := s.taskBiz.DeleteTask(ctx, req.TaskId, getCallerID(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.DeleteTaskResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) GetTask(ctx context.Context, req *taskv1.GetTaskRequest) (*taskv1.GetTaskResponse, error) {
+	task, err := s.taskBiz.GetTask(ctx, req.TaskId, getCallerID(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.GetTaskResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) ListTasks(ctx context.Context, req *taskv1.ListTasksRequest) (*taskv1.ListTasksResponse, error) {
+	filter := biz.TaskListFilter{
+		AssigneeID: req.AssigneeId,
+		Keyword:    req.Keyword,
+		Limit:      int(req.Limit),
+		Cursor:     req.Cursor,
+	}
+	if req.Status != -1 {
+		filter.Status = &req.Status
+	}
+	tasks, nextCursor, err := s.taskBiz.ListTasks(ctx, req.ProjectId, getCallerID(ctx), filter)
+	if err != nil {
+		return nil, err
+	}
+	protoTasks := make([]*taskv1.Task, len(tasks))
+	for i, t := range tasks {
+		protoTasks[i] = toProtoTask(t)
+	}
+	return &taskv1.ListTasksResponse{Tasks: protoTasks, NextCursor: nextCursor}, nil
+}
+
+func (s *TaskService) AssignTask(ctx context.Context, req *taskv1.AssignTaskRequest) (*taskv1.AssignTaskResponse, error) {
+	task, err := s.taskBiz.AssignTask(ctx, req.TaskId, getCallerID(ctx), req.AssigneeId)
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.AssignTaskResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) ChangeTaskStatus(ctx context.Context, req *taskv1.ChangeTaskStatusRequest) (*taskv1.ChangeTaskStatusResponse, error) {
+	task, err := s.taskBiz.ChangeTaskStatus(ctx, req.TaskId, getCallerID(ctx), req.Status, req.Version)
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.ChangeTaskStatusResponse{Task: toProtoTask(task)}, nil
 }

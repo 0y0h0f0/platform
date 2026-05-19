@@ -8,6 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	taskv1 "task-platform/gen/go/task/v1"
+	"task-platform/internal/task/biz"
 	"task-platform/internal/task/data"
 )
 
@@ -25,6 +26,13 @@ type mockBiz struct {
 	checkMemberFn    func(ctx context.Context, projectID, userID string) (bool, int32, error)
 	listProjectsFn   func(ctx context.Context, callerID string, includeArchived bool, limit, offset int) ([]*data.Project, error)
 	getProjectFn     func(ctx context.Context, projectID, callerID string) (*data.Project, error)
+	createTaskFn     func(ctx context.Context, projectID, callerID, title, content string) (*data.Task, error)
+	updateTaskFn     func(ctx context.Context, taskID, callerID, title, content string, priority int32, dueTime string, version int64) (*data.Task, error)
+	deleteTaskFn     func(ctx context.Context, taskID, callerID string) (*data.Task, error)
+	getTaskFn        func(ctx context.Context, taskID, callerID string) (*data.Task, error)
+	listTasksFn      func(ctx context.Context, projectID, callerID string, filter biz.TaskListFilter) ([]*data.Task, string, error)
+	assignTaskFn     func(ctx context.Context, taskID, callerID, assigneeID string) (*data.Task, error)
+	changeStatusFn   func(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error)
 }
 
 func (m *mockBiz) CreateProject(ctx context.Context, callerID, name, description string) (*data.Project, error) {
@@ -65,6 +73,27 @@ func (m *mockBiz) ListProjects(ctx context.Context, callerID string, includeArch
 }
 func (m *mockBiz) GetProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
 	return m.getProjectFn(ctx, projectID, callerID)
+}
+func (m *mockBiz) CreateTask(ctx context.Context, projectID, callerID, title, content string) (*data.Task, error) {
+	return m.createTaskFn(ctx, projectID, callerID, title, content)
+}
+func (m *mockBiz) UpdateTask(ctx context.Context, taskID, callerID, title, content string, priority int32, dueTime string, version int64) (*data.Task, error) {
+	return m.updateTaskFn(ctx, taskID, callerID, title, content, priority, dueTime, version)
+}
+func (m *mockBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*data.Task, error) {
+	return m.deleteTaskFn(ctx, taskID, callerID)
+}
+func (m *mockBiz) GetTask(ctx context.Context, taskID, callerID string) (*data.Task, error) {
+	return m.getTaskFn(ctx, taskID, callerID)
+}
+func (m *mockBiz) ListTasks(ctx context.Context, projectID, callerID string, filter biz.TaskListFilter) ([]*data.Task, string, error) {
+	return m.listTasksFn(ctx, projectID, callerID, filter)
+}
+func (m *mockBiz) AssignTask(ctx context.Context, taskID, callerID, assigneeID string) (*data.Task, error) {
+	return m.assignTaskFn(ctx, taskID, callerID, assigneeID)
+}
+func (m *mockBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error) {
+	return m.changeStatusFn(ctx, taskID, callerID, status, version)
 }
 
 func ctxWithUser(userID, username string) context.Context {
@@ -439,7 +468,7 @@ func TestListProjects_EmptyList(t *testing.T) {
 }
 
 func TestNewTaskService(t *testing.T) {
-	svc := NewTaskService(nil)
+	svc := NewTaskService(nil, nil)
 	if svc == nil {
 		t.Error("expected non-nil TaskService")
 	}
@@ -463,5 +492,322 @@ func TestToProtoMember(t *testing.T) {
 	proto := toProtoMember(m)
 	if proto.Id != "m1" || proto.Role != data.RoleOwner {
 		t.Error("proto member conversion mismatch")
+	}
+}
+
+// --- Task service tests ---
+
+func makeTaskSvc(mock *mockBiz) *TaskService {
+	return &TaskService{biz: mock, taskBiz: mock}
+}
+
+func TestCreateTask_Success(t *testing.T) {
+	mock := &mockBiz{
+		createTaskFn: func(_ context.Context, projectID, callerID, title, content string) (*data.Task, error) {
+			return &data.Task{ID: "t1", ProjectID: projectID, Title: title, CreatorID: callerID, Status: data.TaskStatusTodo}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.CreateTask(ctx, &taskv1.CreateTaskRequest{
+		ProjectId: "proj-1", Title: "My Task", Content: "desc",
+	})
+	if err != nil {
+		t.Fatalf("CreateTask: %v", err)
+	}
+	if resp.Task.Id != "t1" || resp.Task.Title != "My Task" {
+		t.Errorf("task = %+v", resp.Task)
+	}
+}
+
+func TestCreateTask_BizError(t *testing.T) {
+	mock := &mockBiz{
+		createTaskFn: func(_ context.Context, _, _, _, _ string) (*data.Task, error) {
+			return nil, status.Error(codes.InvalidArgument, "invalid title")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.CreateTask(ctx, &taskv1.CreateTaskRequest{ProjectId: "proj-1", Title: ""})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("code = %s, want InvalidArgument", status.Code(err))
+	}
+}
+
+func TestUpdateTask_Success(t *testing.T) {
+	mock := &mockBiz{
+		updateTaskFn: func(_ context.Context, taskID, _, title, _ string, priority int32, _ string, version int64) (*data.Task, error) {
+			return &data.Task{ID: taskID, Title: title, Priority: priority, Version: version + 1}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.UpdateTask(ctx, &taskv1.UpdateTaskRequest{
+		TaskId: "t1", Title: "New Title", Priority: 2, Version: 0,
+	})
+	if err != nil {
+		t.Fatalf("UpdateTask: %v", err)
+	}
+	if resp.Task.Title != "New Title" || resp.Task.Priority != 2 {
+		t.Errorf("task = %+v", resp.Task)
+	}
+}
+
+func TestUpdateTask_BizError(t *testing.T) {
+	mock := &mockBiz{
+		updateTaskFn: func(_ context.Context, _, _, _, _ string, _ int32, _ string, _ int64) (*data.Task, error) {
+			return nil, status.Error(codes.Aborted, "version conflict")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.UpdateTask(ctx, &taskv1.UpdateTaskRequest{TaskId: "t1", Title: "X", Version: 999})
+	if status.Code(err) != codes.Aborted {
+		t.Errorf("code = %s, want Aborted", status.Code(err))
+	}
+}
+
+func TestDeleteTask_Success(t *testing.T) {
+	mock := &mockBiz{
+		deleteTaskFn: func(_ context.Context, taskID, _ string) (*data.Task, error) {
+			return &data.Task{ID: taskID, Title: "Deleted"}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.DeleteTask(ctx, &taskv1.DeleteTaskRequest{TaskId: "t1"})
+	if err != nil {
+		t.Fatalf("DeleteTask: %v", err)
+	}
+	if resp.Task.Id != "t1" {
+		t.Errorf("id = %s", resp.Task.Id)
+	}
+}
+
+func TestDeleteTask_BizError(t *testing.T) {
+	mock := &mockBiz{
+		deleteTaskFn: func(_ context.Context, _, _ string) (*data.Task, error) {
+			return nil, status.Error(codes.PermissionDenied, "not allowed")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.DeleteTask(ctx, &taskv1.DeleteTaskRequest{TaskId: "t1"})
+	if status.Code(err) != codes.PermissionDenied {
+		t.Errorf("code = %s, want PermissionDenied", status.Code(err))
+	}
+}
+
+func TestGetTask_Success(t *testing.T) {
+	mock := &mockBiz{
+		getTaskFn: func(_ context.Context, taskID, _ string) (*data.Task, error) {
+			return &data.Task{ID: taskID, Title: "My Task", ProjectID: "proj-1"}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.GetTask(ctx, &taskv1.GetTaskRequest{TaskId: "t1"})
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if resp.Task.Title != "My Task" {
+		t.Errorf("title = %s", resp.Task.Title)
+	}
+}
+
+func TestGetTask_NotFound(t *testing.T) {
+	mock := &mockBiz{
+		getTaskFn: func(_ context.Context, _, _ string) (*data.Task, error) {
+			return nil, status.Error(codes.NotFound, "not found")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.GetTask(ctx, &taskv1.GetTaskRequest{TaskId: "t1"})
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("code = %s, want NotFound", status.Code(err))
+	}
+}
+
+func TestListTasks_Success(t *testing.T) {
+	mock := &mockBiz{
+		listTasksFn: func(_ context.Context, projectID, _ string, _ biz.TaskListFilter) ([]*data.Task, string, error) {
+			return []*data.Task{{ID: "t1"}, {ID: "t2"}}, "cursor-abc", nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListTasks(ctx, &taskv1.ListTasksRequest{ProjectId: "proj-1", Limit: 20, Status: -1})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(resp.Tasks) != 2 {
+		t.Errorf("len = %d, want 2", len(resp.Tasks))
+	}
+	if resp.NextCursor != "cursor-abc" {
+		t.Errorf("cursor = %s", resp.NextCursor)
+	}
+}
+
+func TestListTasks_WithStatusFilter(t *testing.T) {
+	mock := &mockBiz{
+		listTasksFn: func(_ context.Context, _ string, _ string, filter biz.TaskListFilter) ([]*data.Task, string, error) {
+			if filter.Status == nil || *filter.Status != data.TaskStatusDoing {
+				t.Error("expected status=1 (doing) filter")
+			}
+			return []*data.Task{{ID: "t1", Status: data.TaskStatusDoing}}, "", nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListTasks(ctx, &taskv1.ListTasksRequest{ProjectId: "proj-1", Limit: 20, Status: 1})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Errorf("len = %d, want 1", len(resp.Tasks))
+	}
+}
+
+func TestListTasks_WithStatusTodo(t *testing.T) {
+	mock := &mockBiz{
+		listTasksFn: func(_ context.Context, _ string, _ string, filter biz.TaskListFilter) ([]*data.Task, string, error) {
+			if filter.Status == nil || *filter.Status != data.TaskStatusTodo {
+				t.Error("expected status=0 (todo) filter")
+			}
+			return []*data.Task{{ID: "t1", Status: data.TaskStatusTodo}}, "", nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListTasks(ctx, &taskv1.ListTasksRequest{ProjectId: "proj-1", Limit: 20, Status: 0})
+	if err != nil {
+		t.Fatalf("ListTasks: %v", err)
+	}
+	if len(resp.Tasks) != 1 {
+		t.Errorf("len = %d, want 1", len(resp.Tasks))
+	}
+}
+
+func TestListTasks_BizError(t *testing.T) {
+	mock := &mockBiz{
+		listTasksFn: func(_ context.Context, _, _ string, _ biz.TaskListFilter) ([]*data.Task, string, error) {
+			return nil, "", status.Error(codes.NotFound, "not found")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.ListTasks(ctx, &taskv1.ListTasksRequest{ProjectId: "proj-1", Status: -1})
+	if status.Code(err) != codes.NotFound {
+		t.Errorf("code = %s, want NotFound", status.Code(err))
+	}
+}
+
+func TestAssignTask_Success(t *testing.T) {
+	mock := &mockBiz{
+		assignTaskFn: func(_ context.Context, taskID, _, assigneeID string) (*data.Task, error) {
+			return &data.Task{ID: taskID, AssigneeID: &assigneeID}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.AssignTask(ctx, &taskv1.AssignTaskRequest{TaskId: "t1", AssigneeId: "user-2"})
+	if err != nil {
+		t.Fatalf("AssignTask: %v", err)
+	}
+	if resp.Task.AssigneeId != "user-2" {
+		t.Errorf("assignee = %s", resp.Task.AssigneeId)
+	}
+}
+
+func TestAssignTask_BizError(t *testing.T) {
+	mock := &mockBiz{
+		assignTaskFn: func(_ context.Context, _, _, _ string) (*data.Task, error) {
+			return nil, status.Error(codes.FailedPrecondition, "assignee not a member")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.AssignTask(ctx, &taskv1.AssignTaskRequest{TaskId: "t1", AssigneeId: "user-99"})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("code = %s, want FailedPrecondition", status.Code(err))
+	}
+}
+
+func TestChangeTaskStatus_Success(t *testing.T) {
+	mock := &mockBiz{
+		changeStatusFn: func(_ context.Context, taskID, _ string, status int32, _ int64) (*data.Task, error) {
+			return &data.Task{ID: taskID, Status: status, Version: 1}, nil
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ChangeTaskStatus(ctx, &taskv1.ChangeTaskStatusRequest{
+		TaskId: "t1", Status: 1, Version: 0,
+	})
+	if err != nil {
+		t.Fatalf("ChangeTaskStatus: %v", err)
+	}
+	if resp.Task.Status != 1 {
+		t.Errorf("status = %d", resp.Task.Status)
+	}
+}
+
+func TestChangeTaskStatus_BizError(t *testing.T) {
+	mock := &mockBiz{
+		changeStatusFn: func(_ context.Context, _, _ string, _ int32, _ int64) (*data.Task, error) {
+			return nil, status.Error(codes.FailedPrecondition, "invalid transition")
+		},
+	}
+	svc := makeTaskSvc(mock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.ChangeTaskStatus(ctx, &taskv1.ChangeTaskStatusRequest{TaskId: "t1", Status: 3, Version: 0})
+	if status.Code(err) != codes.FailedPrecondition {
+		t.Errorf("code = %s, want FailedPrecondition", status.Code(err))
+	}
+}
+
+func TestToProtoTask(t *testing.T) {
+	assigneeID := "user-2"
+	dueTime := "2025-12-31"
+	task := &data.Task{
+		ID: "t1", ProjectID: "proj-1", Title: "Test", Content: "body",
+		Status: data.TaskStatusDoing, Priority: data.PriorityHigh,
+		CreatorID: "user-1", AssigneeID: &assigneeID, DueTime: &dueTime,
+		Version: 3,
+	}
+	proto := toProtoTask(task)
+	if proto.Id != "t1" || proto.Title != "Test" || proto.Version != 3 {
+		t.Error("proto conversion mismatch")
+	}
+	if proto.AssigneeId != "user-2" {
+		t.Errorf("assignee_id = %s", proto.AssigneeId)
+	}
+	if proto.DueTime != "2025-12-31" {
+		t.Errorf("due_time = %s", proto.DueTime)
+	}
+}
+
+func TestToProtoTask_NoAssignee(t *testing.T) {
+	task := &data.Task{ID: "t1"}
+	proto := toProtoTask(task)
+	if proto.AssigneeId != "" {
+		t.Errorf("assignee_id should be empty, got %s", proto.AssigneeId)
 	}
 }
