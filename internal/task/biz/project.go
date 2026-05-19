@@ -18,14 +18,16 @@ type ProjectBiz struct {
 	projectRepo data.ProjectRepository
 	memberRepo  data.MemberRepository
 	userClient  UserServiceClient
+	logWriter   *LogWriter
 }
 
-func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient) *ProjectBiz {
+func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter) *ProjectBiz {
 	return &ProjectBiz{
 		db:          db,
 		projectRepo: projectRepo,
 		memberRepo:  memberRepo,
 		userClient:  userClient,
+		logWriter:   logWriter,
 	}
 }
 
@@ -60,6 +62,12 @@ func (b *ProjectBiz) CreateProject(ctx context.Context, callerID, name, descript
 	if err != nil {
 		return nil, err
 	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &project.ID,
+		OperatorID: callerID,
+		Action:     data.ActionProjectCreate,
+		Detail:     `{}`,
+	})
 	return project, nil
 }
 
@@ -104,7 +112,17 @@ func (b *ProjectBiz) UpdateProject(ctx context.Context, projectID, callerID, nam
 	updates["description"] = description
 	updates["version"] = project.Version + 1
 
-	return b.projectRepo.Update(ctx, projectID, version, updates)
+	updated, err := b.projectRepo.Update(ctx, projectID, version, updates)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &updated.ID,
+		OperatorID: callerID,
+		Action:     data.ActionProjectUpdate,
+		Detail:     `{}`,
+	})
+	return updated, nil
 }
 
 func (b *ProjectBiz) ArchiveProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
@@ -116,7 +134,17 @@ func (b *ProjectBiz) ArchiveProject(ctx context.Context, projectID, callerID str
 		return nil, xerr.NewError(xerr.CodePermissionDenied, "only owner can archive project")
 	}
 
-	return b.setProjectStatus(ctx, projectID, data.ProjectStatusArchived)
+	project, err := b.setProjectStatus(ctx, projectID, data.ProjectStatusArchived)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &project.ID,
+		OperatorID: callerID,
+		Action:     data.ActionProjectArchive,
+		Detail:     `{}`,
+	})
+	return project, nil
 }
 
 func (b *ProjectBiz) UnarchiveProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
@@ -128,7 +156,17 @@ func (b *ProjectBiz) UnarchiveProject(ctx context.Context, projectID, callerID s
 		return nil, xerr.NewError(xerr.CodePermissionDenied, "only owner can unarchive project")
 	}
 
-	return b.setProjectStatus(ctx, projectID, data.ProjectStatusActive)
+	project, err := b.setProjectStatus(ctx, projectID, data.ProjectStatusActive)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &project.ID,
+		OperatorID: callerID,
+		Action:     data.ActionProjectUnarchive,
+		Detail:     `{}`,
+	})
+	return project, nil
 }
 
 func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID, targetUserID string) (*data.Project, error) {
@@ -188,7 +226,17 @@ func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID,
 		return nil, err
 	}
 
-	return b.projectRepo.FindByID(ctx, projectID)
+	updated, err := b.projectRepo.FindByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		OperatorID: callerID,
+		Action:     data.ActionProjectTransferOwner,
+		Detail:     `{"from_user_id":"` + callerID + `","to_user_id":"` + targetUserID + `"}`,
+	})
+	return updated, nil
 }
 
 func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, targetUserID string, role int32) (*data.ProjectMember, error) {
@@ -230,6 +278,12 @@ func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, 
 	if err := b.memberRepo.Add(ctx, member); err != nil {
 		return nil, err
 	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		OperatorID: callerID,
+		Action:     data.ActionMemberAdd,
+		Detail:     `{"user_id":"` + targetUserID + `"}`,
+	})
 	return member, nil
 }
 
@@ -267,6 +321,12 @@ func (b *ProjectBiz) RemoveProjectMember(ctx context.Context, projectID, callerI
 	if err := b.memberRepo.Remove(ctx, projectID, targetUserID); err != nil {
 		return nil, err
 	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		OperatorID: callerID,
+		Action:     data.ActionMemberRemove,
+		Detail:     `{"user_id":"` + targetUserID + `"}`,
+	})
 	return targetMember, nil
 }
 
@@ -297,7 +357,17 @@ func (b *ProjectBiz) UpdateProjectMemberRole(ctx context.Context, projectID, cal
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "cannot change owner's role; use transfer ownership")
 	}
 
-	return b.memberRepo.UpdateRole(ctx, projectID, targetUserID, role)
+	updated, err := b.memberRepo.UpdateRole(ctx, projectID, targetUserID, role)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		OperatorID: callerID,
+		Action:     data.ActionMemberRoleChange,
+		Detail:     `{"user_id":"` + targetUserID + `"}`,
+	})
+	return updated, nil
 }
 
 func (b *ProjectBiz) LeaveProject(ctx context.Context, projectID, callerID string) (*data.ProjectMember, error) {
@@ -323,6 +393,12 @@ func (b *ProjectBiz) LeaveProject(ctx context.Context, projectID, callerID strin
 	if err := b.memberRepo.Remove(ctx, projectID, callerID); err != nil {
 		return nil, err
 	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		OperatorID: callerID,
+		Action:     data.ActionMemberLeave,
+		Detail:     `{}`,
+	})
 	return member, nil
 }
 

@@ -126,7 +126,7 @@ func setupProjectHandler(t *testing.T) (*handler.ProjectHandler, *gin.Engine) {
 		},
 	}
 
-	h := handler.NewProjectHandler(stub)
+	h := handler.NewProjectHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -175,7 +175,7 @@ func TestProjectCreate_GRPCError(t *testing.T) {
 	stub := &stubTaskClient{
 		createProjectErr: status.Error(codes.InvalidArgument, "invalid name"),
 	}
-	h2 := handler.NewProjectHandler(stub)
+	h2 := handler.NewProjectHandler(stub, nil)
 
 	r2 := gin.New()
 	r2.Use(func(c *gin.Context) {
@@ -227,7 +227,7 @@ func TestProjectGet_NotFound(t *testing.T) {
 	stub := &stubTaskClient{
 		getProjectErr: status.Error(codes.NotFound, "not found"),
 	}
-	h := handler.NewProjectHandler(stub)
+	h := handler.NewProjectHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -389,7 +389,7 @@ func TestProjectHandler_ErrorResponses(t *testing.T) {
 	stub := &stubTaskClient{
 		archiveErr: status.Error(codes.PermissionDenied, "only owner can archive"),
 	}
-	h := handler.NewProjectHandler(stub)
+	h := handler.NewProjectHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-456"))
@@ -419,7 +419,7 @@ func TestProjectHandler_NonGRPCError(t *testing.T) {
 	stub := &stubTaskClient{
 		leaveErr: status.Error(codes.Unknown, "something weird"),
 	}
-	h := handler.NewProjectHandler(stub)
+	h := handler.NewProjectHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))

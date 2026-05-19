@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
@@ -42,7 +43,7 @@ func DefaultConfig() Config {
 	}
 }
 
-func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
+func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 	if err := validateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
 		return nil, err
 	}
@@ -60,11 +61,18 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	taskRepo := data.NewTaskRepository(db)
+	commentRepo := data.NewCommentRepository(db)
+	opLogRepo := data.NewOperationLogRepository(db)
+
+	logger, _ := zap.NewProduction()
+	logWriter := biz.NewLogWriter(opLogRepo, logger)
 
 	userAdapter := &userClientAdapter{client: userClient}
-	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userAdapter)
-	tb := biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userAdapter)
-	svc := service.NewTaskService(b, tb)
+	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userAdapter, logWriter)
+	tb := biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userAdapter, logWriter)
+	cb := biz.NewCommentBiz(db, commentRepo, taskRepo, projectRepo, memberRepo, logWriter)
+	ob := biz.NewOpLogBiz(opLogRepo, projectRepo, taskRepo, memberRepo)
+	svc := service.NewTaskService(b, tb, cb, ob)
 
 	grpcServer := xgrpc.NewServer(cfg.ReflectionEnabled)
 
@@ -75,7 +83,12 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 
 	taskv1.RegisterTaskServiceServer(grpcServer.GRPC, svc)
 
-	return grpcServer, nil
+	return &ServerBundle{Server: grpcServer, LogWriter: logWriter}, nil
+}
+
+type ServerBundle struct {
+	*xgrpc.Server
+	LogWriter *biz.LogWriter
 }
 
 var TestAuthInterceptor = newAuthInterceptor

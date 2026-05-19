@@ -37,14 +37,27 @@ type taskBiz interface {
 	ChangeTaskStatus(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error)
 }
 
-type TaskService struct {
-	taskv1.UnimplementedTaskServiceServer
-	biz     projectBiz
-	taskBiz taskBiz
+type commentBiz interface {
+	CreateComment(ctx context.Context, taskID, callerID, content string) (*data.TaskComment, error)
+	DeleteComment(ctx context.Context, taskID, commentID, callerID string) (*data.TaskComment, error)
+	ListComments(ctx context.Context, taskID, callerID string, limit int32, afterID string) ([]*data.TaskComment, error)
 }
 
-func NewTaskService(b *biz.ProjectBiz, tb *biz.TaskBiz) *TaskService {
-	return &TaskService{biz: b, taskBiz: tb}
+type opLogBiz interface {
+	ListProjectLogs(ctx context.Context, projectID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error)
+	ListTaskLogs(ctx context.Context, taskID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error)
+}
+
+type TaskService struct {
+	taskv1.UnimplementedTaskServiceServer
+	biz        projectBiz
+	taskBiz    taskBiz
+	commentBiz commentBiz
+	opLogBiz   opLogBiz
+}
+
+func NewTaskService(b *biz.ProjectBiz, tb *biz.TaskBiz, cb commentBiz, opLogBiz opLogBiz) *TaskService {
+	return &TaskService{biz: b, taskBiz: tb, commentBiz: cb, opLogBiz: opLogBiz}
 }
 
 func (s *TaskService) CreateProject(ctx context.Context, req *taskv1.CreateProjectRequest) (*taskv1.CreateProjectResponse, error) {
@@ -275,4 +288,90 @@ func (s *TaskService) ChangeTaskStatus(ctx context.Context, req *taskv1.ChangeTa
 		return nil, err
 	}
 	return &taskv1.ChangeTaskStatusResponse{Task: toProtoTask(task)}, nil
+}
+
+func (s *TaskService) CreateTaskComment(ctx context.Context, req *taskv1.CreateTaskCommentRequest) (*taskv1.CreateTaskCommentResponse, error) {
+	comment, err := s.commentBiz.CreateComment(ctx, req.TaskId, getCallerID(ctx), req.Content)
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.CreateTaskCommentResponse{Comment: toProtoComment(comment)}, nil
+}
+
+func (s *TaskService) DeleteTaskComment(ctx context.Context, req *taskv1.DeleteTaskCommentRequest) (*taskv1.DeleteTaskCommentResponse, error) {
+	comment, err := s.commentBiz.DeleteComment(ctx, req.TaskId, req.CommentId, getCallerID(ctx))
+	if err != nil {
+		return nil, err
+	}
+	return &taskv1.DeleteTaskCommentResponse{Comment: toProtoComment(comment)}, nil
+}
+
+func (s *TaskService) ListTaskComments(ctx context.Context, req *taskv1.ListTaskCommentsRequest) (*taskv1.ListTaskCommentsResponse, error) {
+	comments, err := s.commentBiz.ListComments(ctx, req.TaskId, getCallerID(ctx), req.Limit, req.AfterId)
+	if err != nil {
+		return nil, err
+	}
+	protoComments := make([]*taskv1.TaskComment, len(comments))
+	for i, c := range comments {
+		protoComments[i] = toProtoComment(c)
+	}
+	return &taskv1.ListTaskCommentsResponse{Comments: protoComments}, nil
+}
+
+func (s *TaskService) ListOperationLogs(ctx context.Context, req *taskv1.ListOperationLogsRequest) (*taskv1.ListOperationLogsResponse, error) {
+	callerID := GetUserID(ctx)
+	if callerID == "" {
+		return nil, status.Error(codes.Unauthenticated, "missing user identity")
+	}
+
+	var logs []*data.OperationLog
+	var nextCursor string
+	var err error
+
+	limit := int(req.Limit)
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	if req.ProjectId != "" {
+		logs, nextCursor, err = s.opLogBiz.ListProjectLogs(ctx, req.ProjectId, callerID, limit, req.Cursor)
+	} else if req.TaskId != "" {
+		logs, nextCursor, err = s.opLogBiz.ListTaskLogs(ctx, req.TaskId, callerID, limit, req.Cursor)
+	} else {
+		return nil, status.Error(codes.InvalidArgument, "project_id or task_id is required")
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	protoLogs := make([]*taskv1.OperationLog, len(logs))
+	for i, l := range logs {
+		protoLogs[i] = toProtoOperationLog(l)
+	}
+	return &taskv1.ListOperationLogsResponse{Logs: protoLogs, NextCursor: nextCursor}, nil
+}
+
+func toProtoComment(c *data.TaskComment) *taskv1.TaskComment {
+	return &taskv1.TaskComment{
+		Id:      c.ID,
+		TaskId:  c.TaskID,
+		UserId:  c.UserID,
+		Content: c.Content,
+	}
+}
+
+func toProtoOperationLog(l *data.OperationLog) *taskv1.OperationLog {
+	ol := &taskv1.OperationLog{
+		Id:         l.ID,
+		OperatorId: l.OperatorID,
+		Action:     l.Action,
+		DetailJson: l.Detail,
+	}
+	if l.ProjectID != nil {
+		ol.ProjectId = *l.ProjectID
+	}
+	if l.TaskID != nil {
+		ol.TaskId = *l.TaskID
+	}
+	return ol
 }

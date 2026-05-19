@@ -89,7 +89,7 @@ func setupBiz(t *testing.T) (*biz.ProjectBiz, func(), string, string) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	userClient := &mockUserClient{exists: true, active: true}
-	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient)
+	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
 	caller := uid()
 	other := uid()
 	return b, cleanup, caller, other
@@ -421,7 +421,7 @@ func TestAddProjectMember_UserNotActive(t *testing.T) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	userClient := &mockUserClient{exists: true, active: false}
-	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient)
+	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
 
 	caller := uid()
 	p, _ := b.CreateProject(context.Background(), caller, "Project", "")
@@ -644,7 +644,7 @@ func TestTransferOwnership_TargetDisabled(t *testing.T) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	userClient := &mockUserClient{exists: true, active: false}
-	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient)
+	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
 
 	caller := uid()
 	other := uid()
@@ -674,7 +674,7 @@ func TestAddProjectMember_UserNotExists(t *testing.T) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	userClient := &mockUserClient{exists: false, active: false}
-	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient)
+	b := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
 
 	caller := uid()
 	p, _ := b.CreateProject(context.Background(), caller, "Project", "")
@@ -712,7 +712,7 @@ func TestLeaveProject_NotMember(t *testing.T) {
 	projectRepo := data.NewProjectRepository(db)
 	memberRepo := data.NewMemberRepository(db)
 	userClient := &mockUserClient{exists: true, active: true}
-	b2 := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient)
+	b2 := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
 
 	_, err := b2.LeaveProject(context.Background(), uid(), uid())
 	if err == nil {

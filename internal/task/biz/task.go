@@ -24,15 +24,17 @@ type TaskBiz struct {
 	projectRepo data.ProjectRepository
 	memberRepo  data.MemberRepository
 	userClient  UserServiceClient
+	logWriter   *LogWriter
 }
 
-func NewTaskBiz(db *gorm.DB, taskRepo data.TaskRepository, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient) *TaskBiz {
+func NewTaskBiz(db *gorm.DB, taskRepo data.TaskRepository, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter) *TaskBiz {
 	return &TaskBiz{
 		db:          db,
 		taskRepo:    taskRepo,
 		projectRepo: projectRepo,
 		memberRepo:  memberRepo,
 		userClient:  userClient,
+		logWriter:   logWriter,
 	}
 }
 
@@ -78,6 +80,13 @@ func (b *TaskBiz) CreateTask(ctx context.Context, projectID, callerID, title, co
 	if err := b.taskRepo.Create(ctx, task); err != nil {
 		return nil, err
 	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &projectID,
+		TaskID:     &task.ID,
+		OperatorID: callerID,
+		Action:     data.ActionTaskCreate,
+		Detail:     `{}`,
+	})
 	return task, nil
 }
 
@@ -123,7 +132,18 @@ func (b *TaskBiz) UpdateTask(ctx context.Context, taskID, callerID, title, conte
 	}
 	updates["version"] = task.Version + 1
 
-	return b.taskRepo.Update(ctx, taskID, version, updates)
+	updated, err := b.taskRepo.Update(ctx, taskID, version, updates)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &task.ProjectID,
+		TaskID:     &taskID,
+		OperatorID: callerID,
+		Action:     data.ActionTaskUpdate,
+		Detail:     `{}`,
+	})
+	return updated, nil
 }
 
 func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*data.Task, error) {
@@ -157,7 +177,18 @@ func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*dat
 		}
 	}
 
-	return b.taskRepo.Delete(ctx, taskID)
+	deleted, err := b.taskRepo.Delete(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &task.ProjectID,
+		TaskID:     &taskID,
+		OperatorID: callerID,
+		Action:     data.ActionTaskDelete,
+		Detail:     `{}`,
+	})
+	return deleted, nil
 }
 
 func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, filter TaskListFilter) ([]*data.Task, string, error) {
@@ -245,10 +276,21 @@ func (b *TaskBiz) AssignTask(ctx context.Context, taskID, callerID, assigneeID s
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "assignee does not exist or is disabled")
 	}
 
-	return b.taskRepo.Update(ctx, taskID, task.Version, map[string]any{
+	updated, err := b.taskRepo.Update(ctx, taskID, task.Version, map[string]any{
 		"assignee_id": assigneeID,
 		"version":     task.Version + 1,
 	})
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &task.ProjectID,
+		TaskID:     &taskID,
+		OperatorID: callerID,
+		Action:     data.ActionTaskAssign,
+		Detail:     `{"assignee_id":"` + assigneeID + `"}`,
+	})
+	return updated, nil
 }
 
 func (b *TaskBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error) {
@@ -272,10 +314,21 @@ func (b *TaskBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string,
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "invalid status transition")
 	}
 
-	return b.taskRepo.Update(ctx, taskID, version, map[string]any{
+	updated, err := b.taskRepo.Update(ctx, taskID, version, map[string]any{
 		"status":  status,
 		"version": task.Version + 1,
 	})
+	if err != nil {
+		return nil, err
+	}
+	b.logWriter.Enqueue(ctx, &data.OperationLog{
+		ProjectID:  &task.ProjectID,
+		TaskID:     &taskID,
+		OperatorID: callerID,
+		Action:     data.ActionTaskStatusChange,
+		Detail:     `{"from_status":` + string(rune(task.Status+'0')) + `,"to_status":` + string(rune(status+'0')) + `}`,
+	})
+	return updated, nil
 }
 
 func (b *TaskBiz) getTaskWithPermission(ctx context.Context, taskID, callerID string) (*data.Task, error) {

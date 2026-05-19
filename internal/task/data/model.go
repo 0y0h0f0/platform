@@ -86,3 +86,48 @@ func IsValidTaskTitle(title string) bool {
 	l := len(title)
 	return l >= 1 && l <= 200
 }
+
+type TaskComment struct {
+	ID        string    `gorm:"column:id;primaryKey;default:gen_random_uuid()"`
+	TaskID    string    `gorm:"column:task_id;not null"`
+	UserID    string    `gorm:"column:user_id;not null"`
+	Content   string    `gorm:"column:content;not null"`
+	CreatedAt time.Time `gorm:"column:created_at;not null;autoCreateTime"`
+}
+
+func (TaskComment) TableName() string {
+	return "task_svc.task_comments"
+}
+
+type OperationLog struct {
+	ID         string    `gorm:"column:id;primaryKey;default:gen_random_uuid()"`
+	ProjectID  *string   `gorm:"column:project_id"`
+	TaskID     *string   `gorm:"column:task_id"`
+	OperatorID string    `gorm:"column:operator_id;not null"`
+	Action     string    `gorm:"column:action;size:50;not null"`
+	Detail     string    `gorm:"column:detail;type:jsonb;not null;default:'{}'"`
+	CreatedAt  time.Time `gorm:"column:created_at;not null;autoCreateTime"`
+}
+
+func (OperationLog) TableName() string {
+	return "task_svc.operation_logs"
+}
+
+const (
+	ActionTaskCreate           = "task.create"
+	ActionTaskUpdate           = "task.update"
+	ActionTaskAssign           = "task.assign"
+	ActionTaskStatusChange     = "task.status_change"
+	ActionTaskDelete           = "task.delete"
+	ActionCommentCreate        = "comment.create"
+	ActionCommentDelete        = "comment.delete"
+	ActionMemberAdd            = "member.add"
+	ActionMemberRemove         = "member.remove"
+	ActionMemberRoleChange     = "member.role_change"
+	ActionMemberLeave          = "member.leave"
+	ActionProjectCreate        = "project.create"
+	ActionProjectUpdate        = "project.update"
+	ActionProjectArchive       = "project.archive"
+	ActionProjectUnarchive     = "project.unarchive"
+	ActionProjectTransferOwner = "project.transfer_ownership"
+)

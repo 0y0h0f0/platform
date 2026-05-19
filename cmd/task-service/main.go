@@ -103,6 +103,9 @@ func run() error {
 
 	logger.Info("shutting down")
 
+	serverBundle.LogWriter.Shutdown()
+	logger.Info("operation log writer shut down")
+
 	if err := adminServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown admin http: %w", err)
 	}

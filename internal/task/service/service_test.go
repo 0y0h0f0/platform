@@ -96,6 +96,34 @@ func (m *mockBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string,
 	return m.changeStatusFn(ctx, taskID, callerID, status, version)
 }
 
+type mockCommentBiz struct {
+	createCommentFn func(ctx context.Context, taskID, callerID, content string) (*data.TaskComment, error)
+	deleteCommentFn func(ctx context.Context, taskID, commentID, callerID string) (*data.TaskComment, error)
+	listCommentsFn  func(ctx context.Context, taskID, callerID string, limit int32, afterID string) ([]*data.TaskComment, error)
+}
+
+func (m *mockCommentBiz) CreateComment(ctx context.Context, taskID, callerID, content string) (*data.TaskComment, error) {
+	return m.createCommentFn(ctx, taskID, callerID, content)
+}
+func (m *mockCommentBiz) DeleteComment(ctx context.Context, taskID, commentID, callerID string) (*data.TaskComment, error) {
+	return m.deleteCommentFn(ctx, taskID, commentID, callerID)
+}
+func (m *mockCommentBiz) ListComments(ctx context.Context, taskID, callerID string, limit int32, afterID string) ([]*data.TaskComment, error) {
+	return m.listCommentsFn(ctx, taskID, callerID, limit, afterID)
+}
+
+type mockOpLogBiz struct {
+	listProjectLogsFn func(ctx context.Context, projectID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error)
+	listTaskLogsFn    func(ctx context.Context, taskID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error)
+}
+
+func (m *mockOpLogBiz) ListProjectLogs(ctx context.Context, projectID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error) {
+	return m.listProjectLogsFn(ctx, projectID, callerID, limit, cursor)
+}
+func (m *mockOpLogBiz) ListTaskLogs(ctx context.Context, taskID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error) {
+	return m.listTaskLogsFn(ctx, taskID, callerID, limit, cursor)
+}
+
 func ctxWithUser(userID, username string) context.Context {
 	ctx := context.Background()
 	ctx = WithUserID(ctx, userID)
@@ -468,7 +496,7 @@ func TestListProjects_EmptyList(t *testing.T) {
 }
 
 func TestNewTaskService(t *testing.T) {
-	svc := NewTaskService(nil, nil)
+	svc := NewTaskService(nil, nil, nil, nil)
 	if svc == nil {
 		t.Error("expected non-nil TaskService")
 	}
@@ -498,7 +526,7 @@ func TestToProtoMember(t *testing.T) {
 // --- Task service tests ---
 
 func makeTaskSvc(mock *mockBiz) *TaskService {
-	return &TaskService{biz: mock, taskBiz: mock}
+	return &TaskService{biz: mock, taskBiz: mock, commentBiz: &mockCommentBiz{}, opLogBiz: &mockOpLogBiz{}}
 }
 
 func TestCreateTask_Success(t *testing.T) {
@@ -809,5 +837,158 @@ func TestToProtoTask_NoAssignee(t *testing.T) {
 	proto := toProtoTask(task)
 	if proto.AssigneeId != "" {
 		t.Errorf("assignee_id should be empty, got %s", proto.AssigneeId)
+	}
+}
+
+func TestCreateTaskComment_Success(t *testing.T) {
+	mock := &mockBiz{}
+	commentMock := &mockCommentBiz{
+		createCommentFn: func(_ context.Context, taskID, callerID, content string) (*data.TaskComment, error) {
+			return &data.TaskComment{ID: "c1", TaskID: taskID, UserID: callerID, Content: content}, nil
+		},
+	}
+	svc := makeTaskSvcWithComment(mock, commentMock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.CreateTaskComment(ctx, &taskv1.CreateTaskCommentRequest{
+		TaskId: "t1", Content: "nice task",
+	})
+	if err != nil {
+		t.Fatalf("CreateTaskComment: %v", err)
+	}
+	if resp.Comment.Id != "c1" {
+		t.Errorf("id = %s, want c1", resp.Comment.Id)
+	}
+	if resp.Comment.Content != "nice task" {
+		t.Errorf("content = %s", resp.Comment.Content)
+	}
+}
+
+func TestDeleteTaskComment_Success(t *testing.T) {
+	mock := &mockBiz{}
+	commentMock := &mockCommentBiz{
+		deleteCommentFn: func(_ context.Context, taskID, commentID, _ string) (*data.TaskComment, error) {
+			return &data.TaskComment{ID: commentID, TaskID: taskID}, nil
+		},
+	}
+	svc := makeTaskSvcWithComment(mock, commentMock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.DeleteTaskComment(ctx, &taskv1.DeleteTaskCommentRequest{
+		TaskId: "t1", CommentId: "c1",
+	})
+	if err != nil {
+		t.Fatalf("DeleteTaskComment: %v", err)
+	}
+}
+
+func TestListTaskComments_Success(t *testing.T) {
+	mock := &mockBiz{}
+	commentMock := &mockCommentBiz{
+		listCommentsFn: func(_ context.Context, taskID, _ string, _ int32, _ string) ([]*data.TaskComment, error) {
+			return []*data.TaskComment{
+				{ID: "c1", TaskID: taskID, Content: "hello"},
+				{ID: "c2", TaskID: taskID, Content: "world"},
+			}, nil
+		},
+	}
+	svc := makeTaskSvcWithComment(mock, commentMock)
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListTaskComments(ctx, &taskv1.ListTaskCommentsRequest{
+		TaskId: "t1", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListTaskComments: %v", err)
+	}
+	if len(resp.Comments) != 2 {
+		t.Errorf("got %d comments, want 2", len(resp.Comments))
+	}
+}
+
+func TestListOperationLogs_ByProject(t *testing.T) {
+	mock := &mockBiz{}
+	opLogMock := &mockOpLogBiz{
+		listProjectLogsFn: func(_ context.Context, projectID, callerID string, _ int, _ string) ([]*data.OperationLog, string, error) {
+			return []*data.OperationLog{
+				{ID: "l1", OperatorID: "u1", Action: data.ActionTaskCreate},
+			}, "", nil
+		},
+	}
+	svc := &TaskService{biz: mock, taskBiz: mock, commentBiz: &mockCommentBiz{}, opLogBiz: opLogMock}
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListOperationLogs(ctx, &taskv1.ListOperationLogsRequest{
+		ProjectId: "p1", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListOperationLogs: %v", err)
+	}
+	if len(resp.Logs) != 1 {
+		t.Errorf("got %d logs, want 1", len(resp.Logs))
+	}
+}
+
+func TestListOperationLogs_ByTask(t *testing.T) {
+	mock := &mockBiz{}
+	opLogMock := &mockOpLogBiz{
+		listTaskLogsFn: func(_ context.Context, taskID, callerID string, _ int, _ string) ([]*data.OperationLog, string, error) {
+			return []*data.OperationLog{
+				{ID: "l1", OperatorID: "u1", Action: data.ActionCommentCreate},
+			}, "next-cursor", nil
+		},
+	}
+	svc := &TaskService{biz: mock, taskBiz: mock, commentBiz: &mockCommentBiz{}, opLogBiz: opLogMock}
+	ctx := ctxWithUser("user-1", "alice")
+
+	resp, err := svc.ListOperationLogs(ctx, &taskv1.ListOperationLogsRequest{
+		TaskId: "t1", Limit: 20,
+	})
+	if err != nil {
+		t.Fatalf("ListOperationLogs: %v", err)
+	}
+	if resp.NextCursor != "next-cursor" {
+		t.Errorf("nextCursor = %s, want next-cursor", resp.NextCursor)
+	}
+}
+
+func TestListOperationLogs_MissingBothIDs(t *testing.T) {
+	mock := &mockBiz{}
+	svc := &TaskService{biz: mock, taskBiz: mock, commentBiz: &mockCommentBiz{}, opLogBiz: &mockOpLogBiz{}}
+	ctx := ctxWithUser("user-1", "alice")
+
+	_, err := svc.ListOperationLogs(ctx, &taskv1.ListOperationLogsRequest{})
+	if status.Code(err) != codes.InvalidArgument {
+		t.Errorf("code = %s, want InvalidArgument", status.Code(err))
+	}
+}
+
+func makeTaskSvcWithComment(mock *mockBiz, commentMock *mockCommentBiz) *TaskService {
+	return &TaskService{biz: mock, taskBiz: mock, commentBiz: commentMock, opLogBiz: &mockOpLogBiz{}}
+}
+
+func TestToProtoComment(t *testing.T) {
+	c := &data.TaskComment{ID: "c1", TaskID: "t1", UserID: "u1", Content: "hello"}
+	proto := toProtoComment(c)
+	if proto.Id != "c1" || proto.Content != "hello" {
+		t.Error("proto comment conversion mismatch")
+	}
+}
+
+func TestToProtoOperationLog(t *testing.T) {
+	pid := "p1"
+	l := &data.OperationLog{
+		ID: "l1", ProjectID: &pid, OperatorID: "u1",
+		Action: data.ActionTaskCreate, Detail: `{}`,
+	}
+	proto := toProtoOperationLog(l)
+	if proto.Id != "l1" || proto.Action != data.ActionTaskCreate {
+		t.Error("proto operation log conversion mismatch")
+	}
+	if proto.ProjectId != "p1" {
+		t.Errorf("project_id = %s", proto.ProjectId)
+	}
+	if proto.TaskId != "" {
+		t.Error("task_id should be empty")
 	}
 }

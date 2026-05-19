@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
 	"task-platform/internal/gateway/middleware"
 	"task-platform/pkg/xerr"
@@ -13,10 +15,11 @@ import (
 
 type ProjectHandler struct {
 	taskClient taskv1.TaskServiceClient
+	userClient userv1.UserServiceClient
 }
 
-func NewProjectHandler(taskClient taskv1.TaskServiceClient) *ProjectHandler {
-	return &ProjectHandler{taskClient: taskClient}
+func NewProjectHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient) *ProjectHandler {
+	return &ProjectHandler{taskClient: taskClient, userClient: userClient}
 }
 
 func (h *ProjectHandler) Create(c *gin.Context) {
@@ -284,5 +287,36 @@ func (h *ProjectHandler) Leave(c *gin.Context) {
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
 		Data:      res,
+	})
+}
+
+func (h *ProjectHandler) ListOperationLogs(c *gin.Context) {
+	projectID := c.Param("id")
+
+	limit := int32(20)
+	if limitStr := c.Query("limit"); limitStr != "" {
+		var l int32
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
+			limit = l
+		}
+	}
+
+	res, err := h.taskClient.ListOperationLogs(c.Request.Context(), &taskv1.ListOperationLogsRequest{
+		ProjectId: projectID,
+		Limit:     limit,
+		Cursor:    c.Query("cursor"),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	data := enrichOperationLogs(c.Request.Context(), h.userClient, res)
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      data,
 	})
 }

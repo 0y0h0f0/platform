@@ -34,6 +34,14 @@ type stubTaskServiceClient struct {
 	assignTaskErr      error
 	changeStatusRes    *taskv1.ChangeTaskStatusResponse
 	changeStatusErr    error
+	createCommentRes   *taskv1.CreateTaskCommentResponse
+	createCommentErr   error
+	deleteCommentRes   *taskv1.DeleteTaskCommentResponse
+	deleteCommentErr   error
+	listCommentsRes    *taskv1.ListTaskCommentsResponse
+	listCommentsErr    error
+	listOpLogsRes      *taskv1.ListOperationLogsResponse
+	listOpLogsErr      error
 }
 
 func (s *stubTaskServiceClient) CreateTask(_ context.Context, _ *taskv1.CreateTaskRequest, _ ...grpc.CallOption) (*taskv1.CreateTaskResponse, error) {
@@ -56,6 +64,18 @@ func (s *stubTaskServiceClient) AssignTask(_ context.Context, _ *taskv1.AssignTa
 }
 func (s *stubTaskServiceClient) ChangeTaskStatus(_ context.Context, _ *taskv1.ChangeTaskStatusRequest, _ ...grpc.CallOption) (*taskv1.ChangeTaskStatusResponse, error) {
 	return s.changeStatusRes, s.changeStatusErr
+}
+func (s *stubTaskServiceClient) CreateTaskComment(_ context.Context, _ *taskv1.CreateTaskCommentRequest, _ ...grpc.CallOption) (*taskv1.CreateTaskCommentResponse, error) {
+	return s.createCommentRes, s.createCommentErr
+}
+func (s *stubTaskServiceClient) DeleteTaskComment(_ context.Context, _ *taskv1.DeleteTaskCommentRequest, _ ...grpc.CallOption) (*taskv1.DeleteTaskCommentResponse, error) {
+	return s.deleteCommentRes, s.deleteCommentErr
+}
+func (s *stubTaskServiceClient) ListTaskComments(_ context.Context, _ *taskv1.ListTaskCommentsRequest, _ ...grpc.CallOption) (*taskv1.ListTaskCommentsResponse, error) {
+	return s.listCommentsRes, s.listCommentsErr
+}
+func (s *stubTaskServiceClient) ListOperationLogs(_ context.Context, _ *taskv1.ListOperationLogsRequest, _ ...grpc.CallOption) (*taskv1.ListOperationLogsResponse, error) {
+	return s.listOpLogsRes, s.listOpLogsErr
 }
 
 func setupTaskHandler(t *testing.T) (*handler.TaskHandler, *gin.Engine) {
@@ -84,9 +104,21 @@ func setupTaskHandler(t *testing.T) (*handler.TaskHandler, *gin.Engine) {
 		changeStatusRes: &taskv1.ChangeTaskStatusResponse{
 			Task: &taskv1.Task{Id: "task-1", Status: 1},
 		},
+		createCommentRes: &taskv1.CreateTaskCommentResponse{
+			Comment: &taskv1.TaskComment{Id: "comment-1", TaskId: "task-1", UserId: "user-1", Content: "nice"},
+		},
+		deleteCommentRes: &taskv1.DeleteTaskCommentResponse{
+			Comment: &taskv1.TaskComment{Id: "comment-1", TaskId: "task-1", UserId: "user-1"},
+		},
+		listCommentsRes: &taskv1.ListTaskCommentsResponse{
+			Comments: []*taskv1.TaskComment{{Id: "comment-1", TaskId: "task-1", UserId: "user-1", Content: "hello"}},
+		},
+		listOpLogsRes: &taskv1.ListOperationLogsResponse{
+			Logs: []*taskv1.OperationLog{{Id: "log-1", OperatorId: "user-1", Action: "task.create"}},
+		},
 	}
 
-	h := handler.NewTaskHandler(stub)
+	h := handler.NewTaskHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -134,7 +166,7 @@ func TestTaskCreate_GRPCError(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		createTaskErr: status.Error(codes.InvalidArgument, "invalid title"),
 	}
-	h := handler.NewTaskHandler(stub)
+	h := handler.NewTaskHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -200,7 +232,7 @@ func TestTaskGet_NotFound(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		getTaskErr: status.Error(codes.NotFound, "not found"),
 	}
-	h := handler.NewTaskHandler(stub)
+	h := handler.NewTaskHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -305,7 +337,7 @@ func TestTaskHandler_ErrorResponseFormat(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		deleteTaskErr: status.Error(codes.PermissionDenied, "members can only delete their own tasks"),
 	}
-	h := handler.NewTaskHandler(stub)
+	h := handler.NewTaskHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-456"))
@@ -335,7 +367,7 @@ func TestTaskHandler_InternalError(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		changeStatusErr: status.Error(codes.Unknown, "something weird"),
 	}
-	h := handler.NewTaskHandler(stub)
+	h := handler.NewTaskHandler(stub, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
@@ -346,5 +378,104 @@ func TestTaskHandler_InternalError(t *testing.T) {
 	w := doTaskRequest(r, http.MethodPost, "/tasks/task-1/status", `{"status": 1, "version": 0}`)
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+// --- CreateComment ---
+
+func TestCreateComment_Success(t *testing.T) {
+	h, r := setupTaskHandler(t)
+	r.POST("/tasks/:id/comments", h.CreateComment)
+
+	body := `{"content": "nice task"}`
+	w := doTaskRequest(r, http.MethodPost, "/tasks/task-1/comments", body)
+
+	if w.Code != http.StatusCreated {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusCreated)
+	}
+}
+
+func TestCreateComment_InvalidBody(t *testing.T) {
+	h, r := setupTaskHandler(t)
+	r.POST("/tasks/:id/comments", h.CreateComment)
+
+	w := doTaskRequest(r, http.MethodPost, "/tasks/task-1/comments", "bad")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
+	}
+}
+
+// --- ListComments ---
+
+func TestListComments_Success(t *testing.T) {
+	h, r := setupTaskHandler(t)
+	r.GET("/tasks/:id/comments", h.ListComments)
+
+	w := doTaskRequest(r, http.MethodGet, "/tasks/task-1/comments?limit=10", "")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+// --- DeleteComment ---
+
+func TestDeleteComment_Success(t *testing.T) {
+	h, r := setupTaskHandler(t)
+	r.DELETE("/tasks/:id/comments/:commentId", h.DeleteComment)
+
+	w := doTaskRequest(r, http.MethodDelete, "/tasks/task-1/comments/comment-1", "")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestDeleteComment_NotFound(t *testing.T) {
+	stub := &stubTaskServiceClient{
+		deleteCommentErr: status.Error(codes.NotFound, "not found"),
+	}
+	h := handler.NewTaskHandler(stub, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
+		c.Next()
+	})
+	r.DELETE("/tasks/:id/comments/:commentId", h.DeleteComment)
+
+	w := doTaskRequest(r, http.MethodDelete, "/tasks/task-1/comments/missing", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
+	}
+}
+
+// --- ListOperationLogs ---
+
+func TestListOperationLogs_Success(t *testing.T) {
+	h, r := setupTaskHandler(t)
+	r.GET("/tasks/:id/operation-logs", h.ListOperationLogs)
+
+	w := doTaskRequest(r, http.MethodGet, "/tasks/task-1/operation-logs?limit=20", "")
+
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestListOperationLogs_GRPCError(t *testing.T) {
+	stub := &stubTaskServiceClient{
+		listOpLogsErr: status.Error(codes.InvalidArgument, "invalid cursor"),
+	}
+	h := handler.NewTaskHandler(stub, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
+		c.Next()
+	})
+	r.GET("/tasks/:id/operation-logs", h.ListOperationLogs)
+
+	w := doTaskRequest(r, http.MethodGet, "/tasks/task-1/operation-logs?cursor=bad", "")
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusBadRequest)
 	}
 }

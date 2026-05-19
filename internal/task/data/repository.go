@@ -46,9 +46,24 @@ type TaskFilter struct {
 	FilterHash string
 }
 
+type CommentRepository interface {
+	Create(ctx context.Context, comment *TaskComment) error
+	FindByID(ctx context.Context, id string) (*TaskComment, error)
+	Delete(ctx context.Context, id string) (*TaskComment, error)
+	ListByTask(ctx context.Context, taskID string, limit int32, afterID string) ([]*TaskComment, error)
+}
+
+type OperationLogRepository interface {
+	CreateBatch(ctx context.Context, logs []*OperationLog) error
+	ListByProject(ctx context.Context, projectID string, limit int, cursor string) ([]*OperationLog, string, error)
+	ListByTask(ctx context.Context, taskID string, limit int, cursor string) ([]*OperationLog, string, error)
+}
+
 type projectRepo struct{ db *gorm.DB }
 type memberRepo struct{ db *gorm.DB }
 type taskRepo struct{ db *gorm.DB }
+type commentRepo struct{ db *gorm.DB }
+type operationLogRepo struct{ db *gorm.DB }
 
 func NewProjectRepository(db *gorm.DB) ProjectRepository {
 	return &projectRepo{db: db}
@@ -60,6 +75,14 @@ func NewMemberRepository(db *gorm.DB) MemberRepository {
 
 func NewTaskRepository(db *gorm.DB) TaskRepository {
 	return &taskRepo{db: db}
+}
+
+func NewCommentRepository(db *gorm.DB) CommentRepository {
+	return &commentRepo{db: db}
+}
+
+func NewOperationLogRepository(db *gorm.DB) OperationLogRepository {
+	return &operationLogRepo{db: db}
 }
 
 func (r *projectRepo) Create(ctx context.Context, project *Project) error {
@@ -293,4 +316,126 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 	}
 
 	return tasks, nextCursor, nil
+}
+
+// --- CommentRepository ---
+
+func (r *commentRepo) Create(ctx context.Context, comment *TaskComment) error {
+	err := r.db.WithContext(ctx).Create(comment).Error
+	if err != nil {
+		return xerr.NewError(xerr.CodeInternal, "create comment failed")
+	}
+	return nil
+}
+
+func (r *commentRepo) FindByID(ctx context.Context, id string) (*TaskComment, error) {
+	var c TaskComment
+	err := r.db.WithContext(ctx).First(&c, "id = ?", id).Error
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, xerr.NewError(xerr.CodeNotFound, "comment not found")
+	}
+	if err != nil {
+		return nil, xerr.NewError(xerr.CodeInternal, "find comment failed")
+	}
+	return &c, nil
+}
+
+func (r *commentRepo) Delete(ctx context.Context, id string) (*TaskComment, error) {
+	comment, err := r.FindByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&TaskComment{})
+	if result.Error != nil {
+		return nil, xerr.NewError(xerr.CodeInternal, "delete comment failed")
+	}
+	return comment, nil
+}
+
+func (r *commentRepo) ListByTask(ctx context.Context, taskID string, limit int32, afterID string) ([]*TaskComment, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	query := r.db.WithContext(ctx).Where("task_id = ?", taskID)
+	if afterID != "" {
+		var anchor TaskComment
+		if err := r.db.WithContext(ctx).Where("id = ?", afterID).First(&anchor).Error; err != nil {
+			return nil, xerr.NewError(xerr.CodeNotFound, "after_id comment not found")
+		}
+		query = query.Where("(created_at, id) > (?, ?)", anchor.CreatedAt, anchor.ID)
+	}
+	var comments []*TaskComment
+	err := query.Order("created_at ASC, id ASC").Limit(int(limit)).Find(&comments).Error
+	if err != nil {
+		return nil, xerr.NewError(xerr.CodeInternal, "list comments failed")
+	}
+	return comments, nil
+}
+
+// --- OperationLogRepository ---
+
+func (r *operationLogRepo) CreateBatch(ctx context.Context, logs []*OperationLog) error {
+	if len(logs) == 0 {
+		return nil
+	}
+	err := r.db.WithContext(ctx).Create(logs).Error
+	if err != nil {
+		return xerr.NewError(xerr.CodeInternal, "create operation logs failed")
+	}
+	return nil
+}
+
+func (r *operationLogRepo) ListByProject(ctx context.Context, projectID string, limit int, cursor string) ([]*OperationLog, string, error) {
+	return r.listLogs(ctx, "project_id = ?", projectID, limit, cursor)
+}
+
+func (r *operationLogRepo) ListByTask(ctx context.Context, taskID string, limit int, cursor string) ([]*OperationLog, string, error) {
+	return r.listLogs(ctx, "task_id = ?", taskID, limit, cursor)
+}
+
+func (r *operationLogRepo) listLogs(ctx context.Context, where string, arg string, limit int, cursor string) ([]*OperationLog, string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+
+	query := r.db.WithContext(ctx).Where(where, arg)
+
+	if cursor != "" {
+		fields, err := xcursor.DecodeCursor(cursor)
+		if err != nil {
+			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor")
+		}
+		id, ok := fields["id"].(string)
+		if !ok {
+			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor fields")
+		}
+		createdAtStr, ok := fields["created_at"].(string)
+		if !ok {
+			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor fields")
+		}
+		createdAt, err := time.Parse(time.RFC3339Nano, createdAtStr)
+		if err != nil {
+			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor timestamp")
+		}
+		query = query.Where("(created_at, id) < (?, ?)", createdAt, id)
+	}
+
+	query = query.Order("created_at DESC, id DESC").Limit(limit + 1)
+
+	var logs []*OperationLog
+	if err := query.Find(&logs).Error; err != nil {
+		return nil, "", xerr.NewError(xerr.CodeInternal, "list operation logs failed")
+	}
+
+	var nextCursor string
+	if len(logs) > limit {
+		last := logs[limit-1]
+		nextCursor = xcursor.EncodeCursor(map[string]any{
+			"created_at": last.CreatedAt.Format(time.RFC3339Nano),
+			"id":         last.ID,
+		})
+		logs = logs[:limit]
+	}
+
+	return logs, nextCursor, nil
 }

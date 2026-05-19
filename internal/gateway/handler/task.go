@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
 	"task-platform/internal/gateway/middleware"
 	"task-platform/pkg/xerr"
@@ -13,10 +14,11 @@ import (
 
 type TaskHandler struct {
 	taskClient taskv1.TaskServiceClient
+	userClient userv1.UserServiceClient
 }
 
-func NewTaskHandler(taskClient taskv1.TaskServiceClient) *TaskHandler {
-	return &TaskHandler{taskClient: taskClient}
+func NewTaskHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient) *TaskHandler {
+	return &TaskHandler{taskClient: taskClient, userClient: userClient}
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -201,5 +203,114 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
 		Data:      res,
+	})
+}
+
+func (h *TaskHandler) CreateComment(c *gin.Context) {
+	taskID := c.Param("id")
+
+	var req taskv1.CreateTaskCommentRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
+			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
+			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+	req.TaskId = taskID
+
+	res, err := h.taskClient.CreateTaskComment(c.Request.Context(), &req)
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusCreated, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) ListComments(c *gin.Context) {
+	taskID := c.Param("id")
+
+	limit := int32(20)
+	if limitStr := c.Query("limit"); limitStr != "" {
+		var l int32
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
+			limit = l
+		}
+	}
+
+	res, err := h.taskClient.ListTaskComments(c.Request.Context(), &taskv1.ListTaskCommentsRequest{
+		TaskId:  taskID,
+		Limit:   limit,
+		AfterId: c.Query("after_id"),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	data := enrichComments(c.Request.Context(), h.userClient, res)
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      data,
+	})
+}
+
+func (h *TaskHandler) DeleteComment(c *gin.Context) {
+	taskID := c.Param("id")
+	commentID := c.Param("commentId")
+
+	res, err := h.taskClient.DeleteTaskComment(c.Request.Context(), &taskv1.DeleteTaskCommentRequest{
+		TaskId:    taskID,
+		CommentId: commentID,
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      res,
+	})
+}
+
+func (h *TaskHandler) ListOperationLogs(c *gin.Context) {
+	taskID := c.Param("id")
+
+	limit := int32(20)
+	if limitStr := c.Query("limit"); limitStr != "" {
+		var l int32
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
+			limit = l
+		}
+	}
+
+	res, err := h.taskClient.ListOperationLogs(c.Request.Context(), &taskv1.ListOperationLogsRequest{
+		TaskId: taskID,
+		Limit:  limit,
+		Cursor: c.Query("cursor"),
+	})
+	if err != nil {
+		handleGRPCError(c, err)
+		return
+	}
+
+	data := enrichOperationLogs(c.Request.Context(), h.userClient, res)
+
+	c.JSON(http.StatusOK, &xerr.HTTPResponse{
+		Code:      xerr.CodeOK,
+		Message:   "ok",
+		RequestID: middleware.GetRequestID(c.Request.Context()),
+		Data:      data,
 	})
 }
