@@ -2,7 +2,7 @@
 
 A campus-recruitment backend scaffold — team task collaboration platform built with Go microservices.
 
-**Status:** Phase 6 complete. All services compile, all tests pass, metrics + traces + Grafana dashboard + load test report in place.
+**Status:** All phases complete. Services compile, tests pass (88%+ coverage), metrics + traces + Grafana dashboard in place, 1k QPS verified.
 
 ## Architecture
 
@@ -168,6 +168,11 @@ All endpoints return the envelope: `{ "code": "OK", "message": "...", "request_i
 | GET | `/tasks/:id/comments` | Bearer | List comments (`?limit=`) |
 | DELETE | `/tasks/:id/comments/:commentId` | Bearer | Delete comment |
 | GET | `/tasks/:id/operation-logs` | Bearer | List task operation logs |
+
+## Documentation
+
+- **[Postman Collection](docs/postman/task-platform.postman_collection.json)** — Import into Postman. Auto-sets token on Register/Login; all endpoints with example bodies and auto-synced version variables.
+- **[Interview Script](docs/interview-script.md)** — 面试讲解稿 (Chinese): architecture rationale, key highlights, challenges & solutions, common follow-up questions.
 
 ### Pagination
 

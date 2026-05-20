@@ -83,7 +83,7 @@ func TestNew_Success(t *testing.T) {
 	}
 
 	stats := sqlDB.Stats()
-	if stats.MaxOpenConnections != 20 {
-		t.Errorf("MaxOpenConns = %d, want 20", stats.MaxOpenConnections)
+	if stats.MaxOpenConnections != 100 {
+		t.Errorf("MaxOpenConns = %d, want 100", stats.MaxOpenConnections)
 	}
 }

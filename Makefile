@@ -22,7 +22,7 @@ else
 LINT := $(LINT_BIN)
 endif
 
-.PHONY: proto proto-lint run/% test lint coverage migrate up down loadtest loadtest-baseline loadtest-stress loadtest-endurance
+.PHONY: proto proto-lint run/% test lint coverage migrate up down loadtest loadtest-baseline loadtest-stress loadtest-endurance loadtest-throughput
 
 proto:
 	$(BUF) generate
@@ -66,4 +66,14 @@ loadtest-stress:
 
 loadtest-endurance:
 	k6 run --vus 200 --duration 300s test/load/loadtest.js
+
+loadtest-throughput:
+	k6 run test/load/throughput.js
+
+loadtest-login:
+	k6 run test/load/login-throughput.js
+
+seed-users:
+	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
+	$(GO) run ./cmd/seed-users
 

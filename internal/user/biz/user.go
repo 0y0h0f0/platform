@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"net/mail"
+	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -17,9 +19,29 @@ import (
 )
 
 const (
-	bcryptCost      = 10
 	userCacheTTL    = 5 * time.Minute
 	userCachePrefix = "user:"
+)
+
+var (
+	bcryptCost = func() int {
+		s := os.Getenv("BCRYPT_COST")
+		if s == "" {
+			return 6
+		}
+		v, err := strconv.Atoi(s)
+		if err != nil || v < 4 || v > 14 {
+			return 6
+		}
+		return v
+	}()
+
+	bcryptMaxCost = func() int {
+		if bcryptCost+2 > 14 {
+			return 14
+		}
+		return bcryptCost + 2
+	}()
 )
 
 var (
@@ -43,7 +65,11 @@ func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []str
 }
 
 func HashPassword(plain string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(plain), bcryptCost)
+	return HashPasswordWithCost(plain, bcryptCost)
+}
+
+func HashPasswordWithCost(plain string, cost int) (string, error) {
+	bytes, err := bcrypt.GenerateFromPassword([]byte(plain), cost)
 	if err != nil {
 		return "", xerr.NewError(xerr.CodeInternal, "hash password failed")
 	}
@@ -56,6 +82,10 @@ func VerifyPassword(hashed, plain string) error {
 		return xerr.NewError(xerr.CodeUnauthenticated, "invalid password")
 	}
 	return nil
+}
+
+func NeedsRehash(hash string) bool {
+	return needsRehash(hash)
 }
 
 func (b *UserBiz) Register(ctx context.Context, username, email, password string) (*data.User, error) {
@@ -103,7 +133,20 @@ func (b *UserBiz) Login(ctx context.Context, account, password string) (*data.Us
 	if user.Status != 0 {
 		return nil, xerr.NewError(xerr.CodePermissionDenied, "account is disabled")
 	}
+	if needsRehash(user.PasswordHash) {
+		if rehashed, err := HashPassword(password); err == nil {
+			_ = b.repo.UpdatePasswordHash(ctx, user.ID, rehashed)
+		}
+	}
 	return user, nil
+}
+
+func needsRehash(hash string) bool {
+	cost, err := bcrypt.Cost([]byte(hash))
+	if err != nil {
+		return false
+	}
+	return cost > bcryptMaxCost
 }
 
 func (b *UserBiz) GetUser(ctx context.Context, userID string) (*data.User, error) {

@@ -1,0 +1,741 @@
+{
+	"info": {
+		"_postman_id": "550e8400-e29b-41d4-a716-446655440000",
+		"name": "Task Platform API",
+		"description": "校招微服务项目 — 团队任务协作平台 API 集合。\n\nAll endpoints return envelope: `{ \"code\": \"OK\", \"message\": \"...\", \"request_id\": \"...\", \"data\": {...} }`\n\nUsage:\n1. Set `baseUrl` variable (default http://127.0.0.1:8080)\n2. Call Register or Login to get a token\n3. The token is auto-set via the `afterLogin` test script in the Login request\n4. Or paste a token manually into the collection variable `token`",
+		"schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+	},
+	"item": [
+		{
+			"name": "Auth",
+			"item": [
+				{
+					"name": "Register",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.access_token) {",
+									"        pm.collectionVariables.set('token', json.data.access_token);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional: prevents duplicate processing" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"username\": \"alice\",\n  \"email\": \"alice@example.com\",\n  \"password\": \"Alice1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/register",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "register"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Login",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.access_token) {",
+									"        pm.collectionVariables.set('token', json.data.access_token);",
+									"        console.log('Token saved: ' + json.data.access_token.substring(0, 20) + '...');",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"account\": \"alice\",\n  \"password\": \"Alice1234\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/login",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "login"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Logout",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/auth/logout",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "auth", "logout"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Users",
+			"item": [
+				{
+					"name": "Get Me",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/users/me",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "users", "me"]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Projects",
+			"item": [
+				{
+					"name": "Create Project",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.project) {",
+									"        pm.collectionVariables.set('projectId', json.data.project.id);",
+									"        pm.collectionVariables.set('projectVersion', json.data.project.version);",
+									"        console.log('Project created: ' + json.data.project.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"My Project\",\n  \"description\": \"A sample project for testing\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Projects",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects?limit=20&offset=0",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects"],
+							"query": [
+								{ "key": "limit", "value": "20", "description": "Default 20, max 50" },
+								{ "key": "offset", "value": "0" },
+								{ "key": "include_archived", "value": "false", "disabled": true }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Project",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Project",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.project) {",
+									"        pm.collectionVariables.set('projectVersion', json.data.project.version);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"name\": \"Updated Project Name\",\n  \"description\": \"Updated description\",\n  \"version\": {{projectVersion}}\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Archive Project",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/archive",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "archive"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Unarchive Project",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/unarchive",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "unarchive"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Transfer Ownership",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"target_user_id\": \"put-target-user-uuid-here\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/transfer",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "transfer"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Add Member",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.member) {",
+									"        pm.collectionVariables.set('memberUserId', json.data.member.user_id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"user_id\": \"put-new-member-uuid-here\",\n  \"role\": 2\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/members",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "members"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Members",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/members",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "members"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Member Role",
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"role\": 1\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/members/{{memberUserId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "members", "{{memberUserId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Remove Member",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/members/{{memberUserId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "members", "{{memberUserId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Leave Project",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/members/me/leave",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "members", "me", "leave"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Project Operation Logs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/projects/{{projectId}}/operation-logs?limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "projects", "{{projectId}}", "operation-logs"],
+							"query": [
+								{ "key": "limit", "value": "20" },
+								{ "key": "cursor", "value": "", "disabled": true, "description": "Next page cursor" }
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Tasks",
+			"item": [
+				{
+					"name": "Create Task",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.task) {",
+									"        pm.collectionVariables.set('taskId', json.data.task.id);",
+									"        pm.collectionVariables.set('taskVersion', json.data.task.version);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"project_id\": \"{{projectId}}\",\n  \"title\": \"Implement login page\",\n  \"content\": \"Add form validation and error handling\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Tasks",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks?project_id={{projectId}}&limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks"],
+							"query": [
+								{ "key": "project_id", "value": "{{projectId}}" },
+								{ "key": "limit", "value": "20", "description": "Default 20" },
+								{ "key": "cursor", "value": "", "disabled": true, "description": "Next page cursor (base64url)" },
+								{ "key": "status", "value": "", "disabled": true, "description": "Filter: 0=todo 1=doing 2=done 3=cancelled" },
+								{ "key": "assignee_id", "value": "", "disabled": true },
+								{ "key": "keyword", "value": "", "disabled": true }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Get Task",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Update Task",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.task) {",
+									"        pm.collectionVariables.set('taskVersion', json.data.task.version);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "PUT",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"title\": \"Updated task title\",\n  \"content\": \"Updated content\",\n  \"priority\": 2,\n  \"due_time\": \"2026-06-01T00:00:00Z\",\n  \"version\": {{taskVersion}}\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Task",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Assign Task",
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"assignee_id\": \"put-assignee-uuid-here\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/assign",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "assign"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Change Task Status",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 200) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.task) {",
+									"        pm.collectionVariables.set('taskVersion', json.data.task.version);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"status\": 1,\n  \"version\": {{taskVersion}}\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/status",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "status"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Create Comment",
+					"event": [
+						{
+							"listen": "test",
+							"script": {
+								"exec": [
+									"if (pm.response.code === 201) {",
+									"    var json = pm.response.json();",
+									"    if (json.data && json.data.comment) {",
+									"        pm.collectionVariables.set('commentId', json.data.comment.id);",
+									"    }",
+									"}"
+								],
+								"type": "text/javascript"
+							}
+						}
+					],
+					"request": {
+						"method": "POST",
+						"header": [
+							{ "key": "Content-Type", "value": "application/json" },
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"body": {
+							"mode": "raw",
+							"raw": "{\n  \"content\": \"Looks good, let's merge this!\"\n}"
+						},
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/comments",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "comments"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Comments",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/comments?limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "comments"],
+							"query": [
+								{ "key": "limit", "value": "20" },
+								{ "key": "after_id", "value": "", "disabled": true, "description": "Pagination: return comments after this ID" }
+							]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Delete Comment",
+					"request": {
+						"method": "DELETE",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" },
+							{ "key": "Idempotency-Key", "value": "{{$guid}}", "description": "Optional" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/comments/{{commentId}}",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "comments", "{{commentId}}"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "List Task Operation Logs",
+					"request": {
+						"method": "GET",
+						"header": [
+							{ "key": "Authorization", "value": "Bearer {{token}}" }
+						],
+						"url": {
+							"raw": "{{baseUrl}}/api/v1/tasks/{{taskId}}/operation-logs?limit=20",
+							"host": ["{{baseUrl}}"],
+							"path": ["api", "v1", "tasks", "{{taskId}}", "operation-logs"],
+							"query": [
+								{ "key": "limit", "value": "20" },
+								{ "key": "cursor", "value": "", "disabled": true }
+							]
+						}
+					},
+					"response": []
+				}
+			]
+		},
+		{
+			"name": "Health",
+			"item": [
+				{
+					"name": "Gateway Health",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/healthz",
+							"host": ["{{baseUrl}}"],
+							"path": ["healthz"]
+						}
+					},
+					"response": []
+				},
+				{
+					"name": "Gateway Metrics",
+					"request": {
+						"method": "GET",
+						"url": {
+							"raw": "{{baseUrl}}/metrics",
+							"host": ["{{baseUrl}}"],
+							"path": ["metrics"]
+						}
+					},
+					"response": []
+				}
+			]
+		}
+	],
+	"variable": [
+		{ "key": "baseUrl", "value": "http://127.0.0.1:8080" },
+		{ "key": "token", "value": "" },
+		{ "key": "projectId", "value": "" },
+		{ "key": "projectVersion", "value": "0" },
+		{ "key": "memberUserId", "value": "" },
+		{ "key": "taskId", "value": "" },
+		{ "key": "taskVersion", "value": "0" },
+		{ "key": "commentId", "value": "" }
+	]
+}

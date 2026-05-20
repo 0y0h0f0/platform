@@ -40,8 +40,8 @@ func New(dsn string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("get underlying sql.DB: %w", err)
 	}
 
-	maxOpen := envInt("DB_MAX_OPEN_CONNS", 20)
-	maxIdle := envInt("DB_MAX_IDLE_CONNS", 5)
+	maxOpen := envInt("DB_MAX_OPEN_CONNS", 100)
+	maxIdle := envInt("DB_MAX_IDLE_CONNS", 25)
 	sqlDB.SetMaxOpenConns(maxOpen)
 	sqlDB.SetMaxIdleConns(maxIdle)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)

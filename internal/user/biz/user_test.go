@@ -4,15 +4,18 @@ import (
 	"context"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"task-platform/internal/user/biz"
 	"task-platform/internal/user/data"
 )
 
 type mockRepo struct {
-	createFn        func(ctx context.Context, user *data.User) error
-	findByAccountFn func(ctx context.Context, account string) (*data.User, error)
-	findByIDFn      func(ctx context.Context, id string) (*data.User, error)
-	batchFindFn     func(ctx context.Context, ids []string) ([]*data.User, error)
+	createFn            func(ctx context.Context, user *data.User) error
+	findByAccountFn     func(ctx context.Context, account string) (*data.User, error)
+	findByIDFn          func(ctx context.Context, id string) (*data.User, error)
+	batchFindFn         func(ctx context.Context, ids []string) ([]*data.User, error)
+	updatePasswordHashFn func(ctx context.Context, userID, hash string) error
 }
 
 func (m *mockRepo) Create(ctx context.Context, user *data.User) error {
@@ -29,6 +32,13 @@ func (m *mockRepo) FindByID(ctx context.Context, id string) (*data.User, error) 
 
 func (m *mockRepo) BatchFindByIDs(ctx context.Context, ids []string) ([]*data.User, error) {
 	return m.batchFindFn(ctx, ids)
+}
+
+func (m *mockRepo) UpdatePasswordHash(ctx context.Context, userID, hash string) error {
+	if m.updatePasswordHashFn != nil {
+		return m.updatePasswordHashFn(ctx, userID, hash)
+	}
+	return nil
 }
 
 func TestHashPassword(t *testing.T) {
@@ -214,5 +224,53 @@ func TestBatchGetUsers_TooManyIDs(t *testing.T) {
 	_, err := b.BatchGetUsers(context.Background(), ids)
 	if err == nil {
 		t.Error("expected error for too many IDs")
+	}
+}
+
+func TestNeedsRehash(t *testing.T) {
+	// cost=10 hash (generated with cost=10) should need rehash since default max is 8
+	cost10, _ := biz.HashPasswordWithCost("secret123", 10)
+	if !biz.NeedsRehash(cost10) {
+		t.Error("cost=10 hash should need rehash")
+	}
+
+	// cost=4 hash should not need rehash
+	cost4, _ := biz.HashPasswordWithCost("secret123", 4)
+	if biz.NeedsRehash(cost4) {
+		t.Error("cost=4 hash should not need rehash")
+	}
+}
+
+func TestLogin_RehashesHighCostPassword(t *testing.T) {
+	oldHash, _ := biz.HashPasswordWithCost("secret123", 10)
+	var updatedHash string
+	repo := &mockRepo{
+		findByAccountFn: func(ctx context.Context, account string) (*data.User, error) {
+			return &data.User{
+				ID:           "user-1",
+				Username:     "testuser",
+				PasswordHash: oldHash,
+				Status:       0,
+			}, nil
+		},
+		updatePasswordHashFn: func(ctx context.Context, userID, hash string) error {
+			updatedHash = hash
+			return nil
+		},
+	}
+	b := biz.NewUserBiz(repo, nil, nil)
+	user, err := b.Login(context.Background(), "testuser", "secret123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.ID != "user-1" {
+		t.Errorf("ID = %s", user.ID)
+	}
+	if updatedHash == "" {
+		t.Error("password should have been rehashed")
+	}
+	cost, _ := bcrypt.Cost([]byte(updatedHash))
+	if cost > 8 {
+		t.Errorf("rehashed cost = %d, want <= 8", cost)
 	}
 }

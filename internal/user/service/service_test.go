@@ -16,10 +16,10 @@ import (
 )
 
 type mockRepo struct {
-	createFn        func(ctx context.Context, user *data.User) error
-	findByAccountFn func(ctx context.Context, account string) (*data.User, error)
-	findByIDFn      func(ctx context.Context, id string) (*data.User, error)
-	batchFindFn     func(ctx context.Context, ids []string) ([]*data.User, error)
+	createFn            func(ctx context.Context, user *data.User) error
+	findByAccountFn     func(ctx context.Context, account string) (*data.User, error)
+	findByIDFn          func(ctx context.Context, id string) (*data.User, error)
+	batchFindFn         func(ctx context.Context, ids []string) ([]*data.User, error)
 }
 
 func (m *mockRepo) Create(ctx context.Context, user *data.User) error {
@@ -36,6 +36,10 @@ func (m *mockRepo) FindByID(ctx context.Context, id string) (*data.User, error) 
 
 func (m *mockRepo) BatchFindByIDs(ctx context.Context, ids []string) ([]*data.User, error) {
 	return m.batchFindFn(ctx, ids)
+}
+
+func (m *mockRepo) UpdatePasswordHash(ctx context.Context, userID, hash string) error {
+	return nil
 }
 
 func TestRegister_Success(t *testing.T) {

@@ -15,6 +15,7 @@ type UserRepository interface {
 	FindByAccount(ctx context.Context, account string) (*User, error)
 	FindByID(ctx context.Context, id string) (*User, error)
 	BatchFindByIDs(ctx context.Context, ids []string) ([]*User, error)
+	UpdatePasswordHash(ctx context.Context, userID, hash string) error
 }
 
 type userRepo struct {
@@ -38,14 +39,18 @@ func (r *userRepo) Create(ctx context.Context, user *User) error {
 
 func (r *userRepo) FindByAccount(ctx context.Context, account string) (*User, error) {
 	var user User
-	err := r.db.WithContext(ctx).
-		Where("(username = ? OR email = ?)", account, account).
-		First(&user).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil, xerr.NewError(xerr.CodeNotFound, "user not found")
-	}
+	err := r.db.WithContext(ctx).Raw(
+		`SELECT * FROM user_svc.users WHERE username = ? AND deleted_at IS NULL
+		 UNION ALL
+		 SELECT * FROM user_svc.users WHERE email = ? AND username != ? AND deleted_at IS NULL
+		 LIMIT 1`,
+		account, account, account,
+	).Scan(&user).Error
 	if err != nil {
 		return nil, xerr.NewError(xerr.CodeInternal, "find user failed")
+	}
+	if user.ID == "" {
+		return nil, xerr.NewError(xerr.CodeNotFound, "user not found")
 	}
 	return &user, nil
 }
@@ -72,4 +77,12 @@ func (r *userRepo) BatchFindByIDs(ctx context.Context, ids []string) ([]*User, e
 		return nil, xerr.NewError(xerr.CodeInternal, "batch find users failed")
 	}
 	return users, nil
+}
+
+func (r *userRepo) UpdatePasswordHash(ctx context.Context, userID, hash string) error {
+	err := r.db.WithContext(ctx).Model(&User{}).Where("id = ?", userID).Update("password_hash", hash).Error
+	if err != nil {
+		return xerr.NewError(xerr.CodeInternal, "update password hash failed")
+	}
+	return nil
 }

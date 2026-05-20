@@ -896,7 +896,7 @@ task-platform/
 ### Phase 4–6（工程亮点）
 10. 补评论、操作日志（含异步 worker）、缓存失效、限流、幂等
 11. 丰富指标与 trace、压测、Grafana 截图
-12. 完善 README、Postman Collection、面试讲解稿
+12. ~~完善 README、Postman Collection、面试讲解稿~~ ✓ (2026-05-20)
 
 ---
 

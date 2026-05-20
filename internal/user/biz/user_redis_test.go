@@ -48,6 +48,13 @@ func (m *redisRepo) BatchFindByIDs(ctx context.Context, ids []string) ([]*data.U
 	return out, nil
 }
 
+func (m *redisRepo) UpdatePasswordHash(ctx context.Context, userID, hash string) error {
+	if u, ok := m.users[userID]; ok {
+		u.PasswordHash = hash
+	}
+	return nil
+}
+
 func setupRedis(t *testing.T) *redis.Client {
 	t.Helper()
 	ctx := context.Background()
