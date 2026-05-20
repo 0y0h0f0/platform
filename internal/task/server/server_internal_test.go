@@ -5,6 +5,7 @@ import (
 	"net"
 	"testing"
 
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
@@ -185,6 +186,53 @@ func TestAuthInterceptor_UserIDPropagatedToContext(t *testing.T) {
 	_, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/task.v1.TaskService/CreateProject"}, handler)
 	if err != nil {
 		t.Fatalf("interceptor: %v", err)
+	}
+}
+
+func TestLoggingInterceptor_Success(t *testing.T) {
+	logger := zap.NewNop()
+	interceptor := loggingInterceptor(logger)
+	handler := func(_ context.Context, _ any) (any, error) { return "ok", nil }
+
+	md := metadata.Pairs("x-request-id", "req-123")
+	ctx := metadata.NewIncomingContext(context.Background(), md)
+
+	resp, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test/Method"}, handler)
+	if err != nil {
+		t.Fatalf("interceptor: %v", err)
+	}
+	if resp != "ok" {
+		t.Errorf("resp = %v", resp)
+	}
+}
+
+func TestLoggingInterceptor_Error(t *testing.T) {
+	logger := zap.NewNop()
+	interceptor := loggingInterceptor(logger)
+	handler := func(_ context.Context, _ any) (any, error) {
+		return nil, status.Error(codes.Internal, "something went wrong")
+	}
+
+	ctx := metadata.NewIncomingContext(context.Background(), metadata.Pairs("x-request-id", "req-err"))
+
+	resp, err := interceptor(ctx, nil, &grpc.UnaryServerInfo{FullMethod: "/test/ErrorMethod"}, handler)
+	if err == nil {
+		t.Error("expected error from handler")
+	}
+	_ = resp
+}
+
+func TestLoggingInterceptor_NoMetadata(t *testing.T) {
+	logger := zap.NewNop()
+	interceptor := loggingInterceptor(logger)
+	handler := func(_ context.Context, _ any) (any, error) { return "no-md", nil }
+
+	resp, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/test/NoMD"}, handler)
+	if err != nil {
+		t.Fatalf("interceptor: %v", err)
+	}
+	if resp != "no-md" {
+		t.Errorf("resp = %v", resp)
 	}
 }
 

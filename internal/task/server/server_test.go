@@ -82,6 +82,17 @@ func TestNewGRPCServer_TokenTooShort(t *testing.T) {
 }
 
 // TestAuthInterceptor tests the auth interceptor via the exported test helper.
+func TestNewGRPCServer_PostgresError(t *testing.T) {
+	_, err := taskserver.NewGRPCServer(taskserver.Config{
+		InternalToken:   "valid-token-for-testing-16chars",
+		PostgresDSN:     "host=127.0.0.1 port=19999 user=test dbname=test connect_timeout=1",
+		UserServiceAddr: "127.0.0.1:9091",
+	})
+	if err == nil {
+		t.Error("expected error when postgres is unreachable")
+	}
+}
+
 func TestAuthInterceptor_ValidToken(t *testing.T) {
 	interceptor := taskserver.TestAuthInterceptor("test-token")
 	md := metadata.Pairs("x-internal-token", "test-token", "x-user-id", "user-1", "x-username", "alice")

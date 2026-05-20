@@ -22,7 +22,7 @@ else
 LINT := $(LINT_BIN)
 endif
 
-.PHONY: proto proto-lint run/% test lint coverage migrate up down
+.PHONY: proto proto-lint run/% test lint coverage migrate up down loadtest loadtest-baseline loadtest-stress loadtest-endurance
 
 proto:
 	$(BUF) generate
@@ -51,3 +51,19 @@ up:
 
 down:
 	docker compose -f deploy/docker-compose.yml down
+
+loadtest:
+	@echo "Usage: make loadtest-baseline | loadtest-stress | loadtest-500"
+	@echo "  loadtest-baseline : 100 VUs, 90s (SLO verification)"
+	@echo "  loadtest-stress   : 500 VUs, 120s (stress test)"
+	@echo "  loadtest-500      : 200 VUs, 300s (endurance)"
+
+loadtest-baseline:
+	k6 run --vus 100 --duration 90s test/load/loadtest.js
+
+loadtest-stress:
+	k6 run --vus 500 --duration 120s test/load/loadtest.js
+
+loadtest-endurance:
+	k6 run --vus 200 --duration 300s test/load/loadtest.js
+

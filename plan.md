@@ -701,7 +701,7 @@ task-platform/
 
 #### 任务
 - 统一错误码（覆盖所有业务路径，禁止裸 `errors.New`）
-- 完善日志格式，确认 request_id / trace_id 字段贯穿
+- 完善日志格式，确认 request_id 字段贯穿（trace_id 留到 Phase 6 配合 OpenTelemetry 落地）
 - Redis 缓存用户信息和项目详情，采用 cache-aside（读穿透 + 写时失效 + TTL 兜底）
 - Redis token bucket 限流（按 user_id / IP）
 - 关键写接口接入 `Idempotency-Key` 幂等
@@ -722,14 +722,14 @@ task-platform/
 
 #### 任务
 - 补齐 HTTP/gRPC 请求耗时直方图、错误率计数器、DB/Redis 调用指标
-- 接 OpenTelemetry Trace（gateway → service → DB 全链路）
+- 接 OpenTelemetry Trace（gateway → service → DB 全链路），补齐 trace_id 字段贯穿与日志串联
 - 增加 Grafana 仪表盘并截图存档（RED 指标 + DB 慢查询 + 缓存命中率）
 - 用 `k6` 或 `vegeta` 编写压测脚本，定义并验证 SLO（建议：单机 1k QPS，登录接口 P99 < 100ms）
 - 整理压测报告（QPS / P50 / P99 / 错误率 / 资源占用）
 
 #### 验收标准
 - 能看到 HTTP 和 gRPC 请求耗时指标
-- 能展示一次完整请求链路
+- 能展示一次完整请求链路，并通过 trace_id 串联相关日志
 - 有明确 SLO 与压测数据、瓶颈分析结论
 
 ## 11. 里程碑安排

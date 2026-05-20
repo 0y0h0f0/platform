@@ -22,5 +22,7 @@ func New(addr, password string, db int) (*redis.Client, error) {
 		return nil, fmt.Errorf("redis connect: %w", err)
 	}
 
+	AddMetricsHook(rdb)
+
 	return rdb, nil
 }

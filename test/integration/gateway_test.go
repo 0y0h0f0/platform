@@ -3,6 +3,7 @@
 package integration
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 
 	gwserver "task-platform/internal/gateway/server"
@@ -20,6 +22,15 @@ import (
 
 func newGatewayEngine(t *testing.T) *http.Client {
 	t.Helper()
+
+	// Flush rate limit keys to prevent cross-test contamination.
+	rdb := redis.NewClient(&redis.Options{Addr: redisAddr})
+	defer rdb.Close()
+	ctx := context.Background()
+	iter := rdb.Scan(ctx, 0, "ratelimit:*", 0).Iterator()
+	for iter.Next(ctx) {
+		rdb.Del(ctx, iter.Val())
+	}
 
 	logger := zap.NewNop()
 	ready := &atomic.Bool{}

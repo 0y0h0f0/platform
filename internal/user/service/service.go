@@ -4,12 +4,10 @@ import (
 	"context"
 	"time"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	userv1 "task-platform/gen/go/user/v1"
 	"task-platform/internal/user/biz"
 	"task-platform/internal/user/data"
+	"task-platform/pkg/xerr"
 	"task-platform/pkg/xjwt"
 )
 
@@ -32,7 +30,7 @@ func (s *UserService) Register(ctx context.Context, req *userv1.RegisterRequest)
 	}
 	token, _, err := s.jwtManager.Generate(user.ID, user.Username, jwtTTL)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "generate token failed")
+		return nil, xerr.NewError(xerr.CodeInternal, "generate token failed")
 	}
 	return &userv1.RegisterResponse{
 		AccessToken: token,
@@ -47,7 +45,7 @@ func (s *UserService) Login(ctx context.Context, req *userv1.LoginRequest) (*use
 	}
 	token, _, err := s.jwtManager.Generate(user.ID, user.Username, jwtTTL)
 	if err != nil {
-		return nil, status.Error(codes.Internal, "generate token failed")
+		return nil, xerr.NewError(xerr.CodeInternal, "generate token failed")
 	}
 	return &userv1.LoginResponse{
 		AccessToken: token,

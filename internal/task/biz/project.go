@@ -2,11 +2,19 @@ package biz
 
 import (
 	"context"
+	"encoding/json"
+	"time"
 
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 
 	"task-platform/internal/task/data"
 	"task-platform/pkg/xerr"
+)
+
+const (
+	projectCacheTTL    = 5 * time.Minute
+	projectCachePrefix = "project:"
 )
 
 type UserServiceClient interface {
@@ -14,20 +22,22 @@ type UserServiceClient interface {
 }
 
 type ProjectBiz struct {
-	db         *gorm.DB
+	db          *gorm.DB
 	projectRepo data.ProjectRepository
 	memberRepo  data.MemberRepository
 	userClient  UserServiceClient
 	logWriter   *LogWriter
+	rdb         *redis.Client
 }
 
-func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter) *ProjectBiz {
+func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter, rdb *redis.Client) *ProjectBiz {
 	return &ProjectBiz{
 		db:          db,
 		projectRepo: projectRepo,
 		memberRepo:  memberRepo,
 		userClient:  userClient,
 		logWriter:   logWriter,
+		rdb:         rdb,
 	}
 }
 
@@ -72,17 +82,27 @@ func (b *ProjectBiz) CreateProject(ctx context.Context, callerID, name, descript
 }
 
 func (b *ProjectBiz) GetProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
-	project, err := b.projectRepo.FindByID(ctx, projectID)
-	if err != nil {
-		return nil, err
-	}
-
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 	if err != nil {
 		return nil, err
 	}
 	if member == nil {
 		return nil, xerr.NewError(xerr.CodeNotFound, "project not found")
+	}
+
+	if b.rdb != nil {
+		if p := b.getCachedProject(ctx, projectID); p != nil {
+			return p, nil
+		}
+	}
+
+	project, err := b.projectRepo.FindByID(ctx, projectID)
+	if err != nil {
+		return nil, err
+	}
+
+	if b.rdb != nil {
+		b.cacheProject(ctx, project)
 	}
 
 	return project, nil
@@ -122,6 +142,7 @@ func (b *ProjectBiz) UpdateProject(ctx context.Context, projectID, callerID, nam
 		Action:     data.ActionProjectUpdate,
 		Detail:     `{}`,
 	})
+	b.invalidateProjectCache(ctx, updated.ID)
 	return updated, nil
 }
 
@@ -144,6 +165,7 @@ func (b *ProjectBiz) ArchiveProject(ctx context.Context, projectID, callerID str
 		Action:     data.ActionProjectArchive,
 		Detail:     `{}`,
 	})
+	b.invalidateProjectCache(ctx, project.ID)
 	return project, nil
 }
 
@@ -166,6 +188,7 @@ func (b *ProjectBiz) UnarchiveProject(ctx context.Context, projectID, callerID s
 		Action:     data.ActionProjectUnarchive,
 		Detail:     `{}`,
 	})
+	b.invalidateProjectCache(ctx, project.ID)
 	return project, nil
 }
 
@@ -236,6 +259,7 @@ func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID,
 		Action:     data.ActionProjectTransferOwner,
 		Detail:     `{"from_user_id":"` + callerID + `","to_user_id":"` + targetUserID + `"}`,
 	})
+	b.invalidateProjectCache(ctx, projectID)
 	return updated, nil
 }
 
@@ -472,4 +496,30 @@ func (b *ProjectBiz) setProjectStatus(ctx context.Context, projectID string, sta
 		"status":  status,
 		"version": project.Version + 1,
 	})
+}
+
+func (b *ProjectBiz) getCachedProject(ctx context.Context, projectID string) *data.Project {
+	raw, err := b.rdb.Get(ctx, projectCachePrefix+projectID).Bytes()
+	if err != nil {
+		return nil
+	}
+	var p data.Project
+	if json.Unmarshal(raw, &p) != nil {
+		return nil
+	}
+	return &p
+}
+
+func (b *ProjectBiz) cacheProject(ctx context.Context, p *data.Project) {
+	raw, err := json.Marshal(p)
+	if err != nil {
+		return
+	}
+	b.rdb.Set(ctx, projectCachePrefix+p.ID, raw, projectCacheTTL)
+}
+
+func (b *ProjectBiz) invalidateProjectCache(ctx context.Context, projectID string) {
+	if b.rdb != nil {
+		b.rdb.Del(ctx, projectCachePrefix+projectID)
+	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
@@ -11,6 +12,8 @@ import (
 	taskv1 "task-platform/gen/go/task/v1"
 	userv1 "task-platform/gen/go/user/v1"
 	"task-platform/internal/gateway/middleware"
+	"task-platform/pkg/xerr"
+	"task-platform/pkg/xgrpc"
 )
 
 type Clients struct {
@@ -23,13 +26,13 @@ type Clients struct {
 func NewClients(_ context.Context, userServiceAddr, taskServiceAddr, internalToken string) (*Clients, error) {
 	userConn, err := dial(userServiceAddr, internalToken)
 	if err != nil {
-		return nil, fmt.Errorf("dial user-service: %w", err)
+		return nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("dial user-service: %v", err))
 	}
 
 	taskConn, err := dial(taskServiceAddr, internalToken)
 	if err != nil {
 		_ = userConn.Close()
-		return nil, fmt.Errorf("dial task-service: %w", err)
+		return nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("dial task-service: %v", err))
 	}
 
 	return &Clients{
@@ -41,7 +44,7 @@ func NewClients(_ context.Context, userServiceAddr, taskServiceAddr, internalTok
 }
 
 func dial(addr, internalToken string) (*grpc.ClientConn, error) {
-	interceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+	metadataInterceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		md, _ := metadata.FromOutgoingContext(ctx)
 		if md == nil {
 			md = metadata.New(nil)
@@ -61,7 +64,11 @@ func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 
 	return grpc.NewClient(addr,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
-		grpc.WithUnaryInterceptor(interceptor),
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
+		grpc.WithChainUnaryInterceptor(
+			xgrpc.UnaryClientMetricsInterceptor(),
+			metadataInterceptor,
+		),
 	)
 }
 

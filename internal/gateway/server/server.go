@@ -12,6 +12,7 @@ import (
 	"task-platform/internal/gateway/handler"
 	"task-platform/internal/gateway/middleware"
 	"task-platform/internal/gateway/rpc"
+	"task-platform/pkg/xerr"
 	"task-platform/pkg/xhttp"
 	"task-platform/pkg/xjwt"
 	"task-platform/pkg/xredis"
@@ -47,12 +48,12 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 
 	rdb, err := xredis.New(cfg.RedisAddr, cfg.RedisPassword, 0)
 	if err != nil {
-		return nil, nil, fmt.Errorf("connect redis: %w", err)
+		return nil, nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("connect redis: %v", err))
 	}
 
 	clients, err := rpc.NewClients(context.Background(), cfg.UserServiceAddr, cfg.TaskServiceAddr, cfg.InternalToken)
 	if err != nil {
-		return nil, nil, fmt.Errorf("create rpc clients: %w", err)
+		return nil, nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("create rpc clients: %v", err))
 	}
 
 	jwtManager := xjwt.NewManager(cfg.JWTSecret)
@@ -65,16 +66,18 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	}
 
 	engine.Use(middleware.RequestID())
+	engine.Use(middleware.HTTPTrace())
+	engine.Use(middleware.HTTPMetrics())
 	engine.Use(middleware.AccessLog(logger))
 	engine.Use(middleware.CORS())
-	engine.Use(middleware.RateLimitByIP())
+	engine.Use(middleware.RateLimitByIP(rdb))
 	engine.Use(middleware.Auth(jwtManager, rdb, publicPaths))
-	engine.Use(middleware.RateLimitByUser())
+	engine.Use(middleware.RateLimitByUser(rdb))
 
 	authH := handler.NewAuthHandler(clients.UserClient, rdb)
 	userH := handler.NewUserHandler(clients.UserClient)
-	projectH := handler.NewProjectHandler(clients.TaskClient, clients.UserClient)
-	taskH := handler.NewTaskHandler(clients.TaskClient, clients.UserClient)
+	projectH := handler.NewProjectHandler(clients.TaskClient, clients.UserClient, rdb)
+	taskH := handler.NewTaskHandler(clients.TaskClient, clients.UserClient, rdb)
 
 	v1 := engine.Group("/api/v1")
 	{
@@ -132,13 +135,13 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 
 func validateSecret(name, value string, minLen int) error {
 	if value == "" {
-		return fmt.Errorf("%s is required", name)
+		return xerr.NewError(xerr.CodeFailedPrecondition, name+" is required")
 	}
 	if value == "replace-with-a-long-random-secret" || value == "replace-with-a-long-random-internal-token" {
-		return fmt.Errorf("%s must be changed from the default placeholder", name)
+		return xerr.NewError(xerr.CodeFailedPrecondition, name+" must be changed from the default placeholder")
 	}
 	if len(value) < minLen {
-		return fmt.Errorf("%s must be at least %d characters", name, minLen)
+		return xerr.NewError(xerr.CodeFailedPrecondition, name+fmt.Sprintf(" must be at least %d characters", minLen))
 	}
 	return nil
 }

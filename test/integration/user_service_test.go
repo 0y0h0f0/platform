@@ -183,6 +183,8 @@ func runTests(m *testing.M) (int, error) {
 		AdminAddr:         "127.0.0.1:0",
 		ReflectionEnabled: false,
 		PostgresDSN:       pgDSN,
+		RedisAddr:         redisAddr,
+		RedisPassword:     "",
 		InternalToken:     testInternalToken,
 		UserServiceAddr:   grpcLisAddr,
 	})

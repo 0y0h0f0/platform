@@ -16,7 +16,7 @@ func setupTaskBiz(t *testing.T) (projectBiz *biz.ProjectBiz, taskBiz *biz.TaskBi
 	taskRepo := data.NewTaskRepository(db)
 	userClient := &mockUserClient{exists: true, active: true}
 
-	projectBiz = biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
+	projectBiz = biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil, nil)
 	taskBiz = biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userClient, nil)
 	caller = uid()
 	other = uid()
@@ -298,7 +298,7 @@ func TestAssignTask_TargetDisabled(t *testing.T) {
 	memberRepo := data.NewMemberRepository(db)
 	taskRepo := data.NewTaskRepository(db)
 	userClient := &mockUserClient{exists: true, active: false}
-	pb := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
+	pb := biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil, nil)
 	tb := biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userClient, nil)
 
 	caller := uid()

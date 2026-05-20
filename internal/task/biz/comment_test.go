@@ -17,7 +17,7 @@ func setupCommentBiz(t *testing.T) (projectBiz *biz.ProjectBiz, taskBiz *biz.Tas
 	commentRepo := data.NewCommentRepository(db)
 	userClient := &mockUserClient{exists: true, active: true}
 
-	projectBiz = biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil)
+	projectBiz = biz.NewProjectBiz(db, projectRepo, memberRepo, userClient, nil, nil)
 	taskBiz = biz.NewTaskBiz(db, taskRepo, projectRepo, memberRepo, userClient, nil)
 	commentBiz = biz.NewCommentBiz(db, commentRepo, taskRepo, projectRepo, memberRepo, nil)
 	caller = uid()

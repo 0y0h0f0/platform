@@ -118,7 +118,7 @@ func setupTaskHandler(t *testing.T) (*handler.TaskHandler, *gin.Engine) {
 		},
 	}
 
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -166,7 +166,7 @@ func TestTaskCreate_GRPCError(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		createTaskErr: status.Error(codes.InvalidArgument, "invalid title"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -232,7 +232,7 @@ func TestTaskGet_NotFound(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		getTaskErr: status.Error(codes.NotFound, "not found"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-123"))
@@ -337,7 +337,7 @@ func TestTaskHandler_ErrorResponseFormat(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		deleteTaskErr: status.Error(codes.PermissionDenied, "members can only delete their own tasks"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-456"))
@@ -367,7 +367,7 @@ func TestTaskHandler_InternalError(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		changeStatusErr: status.Error(codes.Unknown, "something weird"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
@@ -435,7 +435,7 @@ func TestDeleteComment_NotFound(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		deleteCommentErr: status.Error(codes.NotFound, "not found"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
@@ -466,7 +466,7 @@ func TestListOperationLogs_GRPCError(t *testing.T) {
 	stub := &stubTaskServiceClient{
 		listOpLogsErr: status.Error(codes.InvalidArgument, "invalid cursor"),
 	}
-	h := handler.NewTaskHandler(stub, nil)
+	h := handler.NewTaskHandler(stub, nil, nil)
 	r := gin.New()
 	r.Use(func(c *gin.Context) {
 		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))

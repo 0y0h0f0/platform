@@ -17,3 +17,12 @@ func TestInit(t *testing.T) {
 		t.Fatalf("shutdown() error = %v", err)
 	}
 }
+
+func TestSetLogger(t *testing.T) {
+	t.Parallel()
+
+	SetLogger(nil)
+	if globalLogger != nil {
+		t.Error("expected nil logger")
+	}
+}

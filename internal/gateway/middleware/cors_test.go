@@ -47,7 +47,7 @@ func TestCORS_Preflight(t *testing.T) {
 func TestRateLimitByIP(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.Use(middleware.RateLimitByIP())
+	engine.Use(middleware.RateLimitByIP(nil))
 	engine.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})
@@ -64,7 +64,7 @@ func TestRateLimitByIP(t *testing.T) {
 func TestRateLimitByUser(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.Use(middleware.RateLimitByUser())
+	engine.Use(middleware.RateLimitByUser(nil))
 	engine.GET("/test", func(c *gin.Context) {
 		c.String(http.StatusOK, "ok")
 	})

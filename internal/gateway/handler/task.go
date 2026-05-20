@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
 	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
@@ -15,10 +16,11 @@ import (
 type TaskHandler struct {
 	taskClient taskv1.TaskServiceClient
 	userClient userv1.UserServiceClient
+	rdb        *redis.Client
 }
 
-func NewTaskHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient) *TaskHandler {
-	return &TaskHandler{taskClient: taskClient, userClient: userClient}
+func NewTaskHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient, rdb *redis.Client) *TaskHandler {
+	return &TaskHandler{taskClient: taskClient, userClient: userClient, rdb: rdb}
 }
 
 func (h *TaskHandler) Create(c *gin.Context) {
@@ -27,6 +29,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
 			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
 			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
 		return
 	}
 
@@ -121,6 +129,12 @@ func (h *TaskHandler) Update(c *gin.Context) {
 	}
 	req.TaskId = taskID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.UpdateTask(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -137,6 +151,12 @@ func (h *TaskHandler) Update(c *gin.Context) {
 
 func (h *TaskHandler) Delete(c *gin.Context) {
 	taskID := c.Param("id")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.DeleteTask(c.Request.Context(), &taskv1.DeleteTaskRequest{
 		TaskId: taskID,
@@ -166,6 +186,12 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 	}
 	req.TaskId = taskID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.AssignTask(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -192,6 +218,12 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 	}
 	req.TaskId = taskID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.ChangeTaskStatus(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -217,6 +249,12 @@ func (h *TaskHandler) CreateComment(c *gin.Context) {
 		return
 	}
 	req.TaskId = taskID
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.CreateTaskComment(c.Request.Context(), &req)
 	if err != nil {
@@ -266,6 +304,12 @@ func (h *TaskHandler) ListComments(c *gin.Context) {
 func (h *TaskHandler) DeleteComment(c *gin.Context) {
 	taskID := c.Param("id")
 	commentID := c.Param("commentId")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.DeleteTaskComment(c.Request.Context(), &taskv1.DeleteTaskCommentRequest{
 		TaskId:    taskID,

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 
 	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
@@ -16,10 +17,11 @@ import (
 type ProjectHandler struct {
 	taskClient taskv1.TaskServiceClient
 	userClient userv1.UserServiceClient
+	rdb        *redis.Client
 }
 
-func NewProjectHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient) *ProjectHandler {
-	return &ProjectHandler{taskClient: taskClient, userClient: userClient}
+func NewProjectHandler(taskClient taskv1.TaskServiceClient, userClient userv1.UserServiceClient, rdb *redis.Client) *ProjectHandler {
+	return &ProjectHandler{taskClient: taskClient, userClient: userClient, rdb: rdb}
 }
 
 func (h *ProjectHandler) Create(c *gin.Context) {
@@ -28,6 +30,12 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, xerr.ToHTTPResponse(
 			xerr.NewError(xerr.CodeInvalidArgument, "invalid request body"),
 			middleware.GetRequestID(c.Request.Context())))
+		return
+	}
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
 		return
 	}
 
@@ -99,6 +107,12 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 	}
 	req.ProjectId = projectID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.UpdateProject(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -115,6 +129,12 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 
 func (h *ProjectHandler) Archive(c *gin.Context) {
 	projectID := c.Param("id")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.ArchiveProject(c.Request.Context(), &taskv1.ArchiveProjectRequest{
 		ProjectId: projectID,
@@ -134,6 +154,12 @@ func (h *ProjectHandler) Archive(c *gin.Context) {
 
 func (h *ProjectHandler) Unarchive(c *gin.Context) {
 	projectID := c.Param("id")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.UnarchiveProject(c.Request.Context(), &taskv1.UnarchiveProjectRequest{
 		ProjectId: projectID,
@@ -163,6 +189,12 @@ func (h *ProjectHandler) Transfer(c *gin.Context) {
 	}
 	req.ProjectId = projectID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.TransferProjectOwnership(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -188,6 +220,12 @@ func (h *ProjectHandler) AddMember(c *gin.Context) {
 		return
 	}
 	req.ProjectId = projectID
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.AddProjectMember(c.Request.Context(), &req)
 	if err != nil {
@@ -236,6 +274,12 @@ func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 	req.ProjectId = projectID
 	req.UserId = userID
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.taskClient.UpdateProjectMemberRole(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -253,6 +297,12 @@ func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 func (h *ProjectHandler) RemoveMember(c *gin.Context) {
 	projectID := c.Param("id")
 	userID := c.Param("userId")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.RemoveProjectMember(c.Request.Context(), &taskv1.RemoveProjectMemberRequest{
 		ProjectId: projectID,
@@ -273,6 +323,12 @@ func (h *ProjectHandler) RemoveMember(c *gin.Context) {
 
 func (h *ProjectHandler) Leave(c *gin.Context) {
 	projectID := c.Param("id")
+
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
 
 	res, err := h.taskClient.LeaveProject(c.Request.Context(), &taskv1.LeaveProjectRequest{
 		ProjectId: projectID,

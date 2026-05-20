@@ -3,12 +3,10 @@ package service
 import (
 	"context"
 
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
-
 	taskv1 "task-platform/gen/go/task/v1"
 	"task-platform/internal/task/biz"
 	"task-platform/internal/task/data"
+	"task-platform/pkg/xerr"
 )
 
 type projectBiz interface {
@@ -63,7 +61,7 @@ func NewTaskService(b *biz.ProjectBiz, tb *biz.TaskBiz, cb commentBiz, opLogBiz 
 func (s *TaskService) CreateProject(ctx context.Context, req *taskv1.CreateProjectRequest) (*taskv1.CreateProjectResponse, error) {
 	callerID := GetUserID(ctx)
 	if callerID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user identity")
+		return nil, xerr.NewError(xerr.CodeUnauthenticated, "missing user identity")
 	}
 
 	project, err := s.biz.CreateProject(ctx, callerID, req.Name, req.Description)
@@ -321,7 +319,7 @@ func (s *TaskService) ListTaskComments(ctx context.Context, req *taskv1.ListTask
 func (s *TaskService) ListOperationLogs(ctx context.Context, req *taskv1.ListOperationLogsRequest) (*taskv1.ListOperationLogsResponse, error) {
 	callerID := GetUserID(ctx)
 	if callerID == "" {
-		return nil, status.Error(codes.Unauthenticated, "missing user identity")
+		return nil, xerr.NewError(xerr.CodeUnauthenticated, "missing user identity")
 	}
 
 	var logs []*data.OperationLog
@@ -338,7 +336,7 @@ func (s *TaskService) ListOperationLogs(ctx context.Context, req *taskv1.ListOpe
 	} else if req.TaskId != "" {
 		logs, nextCursor, err = s.opLogBiz.ListTaskLogs(ctx, req.TaskId, callerID, limit, req.Cursor)
 	} else {
-		return nil, status.Error(codes.InvalidArgument, "project_id or task_id is required")
+		return nil, xerr.NewError(xerr.CodeInvalidArgument, "project_id or task_id is required")
 	}
 	if err != nil {
 		return nil, err

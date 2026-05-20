@@ -30,6 +30,12 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.userClient.Register(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -52,6 +58,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	res, err := h.userClient.Login(c.Request.Context(), &req)
 	if err != nil {
 		handleGRPCError(c, err)
@@ -67,6 +79,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	shouldReturn, cleanup := SetupIdempotency(c, h.rdb)
+	defer cleanup()
+	if shouldReturn {
+		return
+	}
+
 	jti := middleware.GetJTI(c.Request.Context())
 	exp := middleware.GetTokenExpiry(c.Request.Context())
 
