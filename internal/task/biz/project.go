@@ -3,6 +3,8 @@ package biz
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"log"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -10,6 +12,7 @@ import (
 
 	"task-platform/internal/task/data"
 	"task-platform/pkg/xerr"
+	"task-platform/pkg/xredis"
 )
 
 const (
@@ -257,7 +260,7 @@ func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID,
 		ProjectID:  &projectID,
 		OperatorID: callerID,
 		Action:     data.ActionProjectTransferOwner,
-		Detail:     `{"from_user_id":"` + callerID + `","to_user_id":"` + targetUserID + `"}`,
+		Detail:     jsonDetail(map[string]string{"from_user_id": callerID, "to_user_id": targetUserID}),
 	})
 	b.invalidateProjectCache(ctx, projectID)
 	return updated, nil
@@ -306,7 +309,7 @@ func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, 
 		ProjectID:  &projectID,
 		OperatorID: callerID,
 		Action:     data.ActionMemberAdd,
-		Detail:     `{"user_id":"` + targetUserID + `"}`,
+		Detail:     jsonDetail(map[string]string{"user_id": targetUserID}),
 	})
 	return member, nil
 }
@@ -349,7 +352,7 @@ func (b *ProjectBiz) RemoveProjectMember(ctx context.Context, projectID, callerI
 		ProjectID:  &projectID,
 		OperatorID: callerID,
 		Action:     data.ActionMemberRemove,
-		Detail:     `{"user_id":"` + targetUserID + `"}`,
+		Detail:     jsonDetail(map[string]string{"user_id": targetUserID}),
 	})
 	return targetMember, nil
 }
@@ -389,7 +392,7 @@ func (b *ProjectBiz) UpdateProjectMemberRole(ctx context.Context, projectID, cal
 		ProjectID:  &projectID,
 		OperatorID: callerID,
 		Action:     data.ActionMemberRoleChange,
-		Detail:     `{"user_id":"` + targetUserID + `"}`,
+		Detail:     jsonDetail(map[string]string{"user_id": targetUserID}),
 	})
 	return updated, nil
 }
@@ -501,10 +504,17 @@ func (b *ProjectBiz) setProjectStatus(ctx context.Context, projectID string, sta
 func (b *ProjectBiz) getCachedProject(ctx context.Context, projectID string) *data.Project {
 	raw, err := b.rdb.Get(ctx, projectCachePrefix+projectID).Bytes()
 	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			log.Printf("WARN: project cache get failed for %s: %v", projectID, err)
+		} else {
+			xredis.IncrCacheMiss()
+		}
 		return nil
 	}
+	xredis.IncrCacheHit()
 	var p data.Project
-	if json.Unmarshal(raw, &p) != nil {
+	if err := json.Unmarshal(raw, &p); err != nil {
+		log.Printf("WARN: project cache deserialize failed for %s: %v", projectID, err)
 		return nil
 	}
 	return &p
@@ -513,13 +523,18 @@ func (b *ProjectBiz) getCachedProject(ctx context.Context, projectID string) *da
 func (b *ProjectBiz) cacheProject(ctx context.Context, p *data.Project) {
 	raw, err := json.Marshal(p)
 	if err != nil {
+		log.Printf("WARN: project cache marshal failed for %s: %v", p.ID, err)
 		return
 	}
-	b.rdb.Set(ctx, projectCachePrefix+p.ID, raw, projectCacheTTL)
+	if err := b.rdb.Set(ctx, projectCachePrefix+p.ID, raw, projectCacheTTL).Err(); err != nil {
+		log.Printf("WARN: project cache set failed for %s: %v", p.ID, err)
+	}
 }
 
 func (b *ProjectBiz) invalidateProjectCache(ctx context.Context, projectID string) {
 	if b.rdb != nil {
-		b.rdb.Del(ctx, projectCachePrefix+projectID)
+		if err := b.rdb.Del(ctx, projectCachePrefix+projectID).Err(); err != nil {
+			log.Printf("WARN: project cache invalidation failed for %s: %v", projectID, err)
+		}
 	}
 }

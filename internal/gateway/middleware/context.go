@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"log"
 	"time"
 )
 
@@ -16,26 +17,42 @@ const (
 )
 
 func GetUserID(ctx context.Context) string {
-	v, _ := ctx.Value(CtxKeyUserID).(string)
+	v, ok := ctx.Value(CtxKeyUserID).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 
 func GetUsername(ctx context.Context) string {
-	v, _ := ctx.Value(CtxKeyUsername).(string)
+	v, ok := ctx.Value(CtxKeyUsername).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 
 func GetJTI(ctx context.Context) string {
-	v, _ := ctx.Value(CtxKeyJTI).(string)
+	v, ok := ctx.Value(CtxKeyJTI).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 
 func GetRequestID(ctx context.Context) string {
-	v, _ := ctx.Value(CtxKeyRequestID).(string)
+	v, ok := ctx.Value(CtxKeyRequestID).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 
 func GetTokenExpiry(ctx context.Context) time.Time {
-	v, _ := ctx.Value(CtxKeyTokenExp).(time.Time)
+	v, ok := ctx.Value(CtxKeyTokenExp).(time.Time)
+	if !ok {
+		log.Printf("WARN: unexpected type for context key %s", CtxKeyTokenExp)
+		return time.Time{}
+	}
 	return v
 }

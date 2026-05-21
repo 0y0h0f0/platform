@@ -149,8 +149,21 @@ func TestDefaultConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestNewGRPCServer_EmptyPostgresDSN(t *testing.T) {
+	_, err := server.NewGRPCServer(server.Config{
+		JWTSecret:     "valid-secret-long-enough-for-hs256-testing-ok",
+		InternalToken: "valid-token-long-enough-for-testing-ok",
+	})
+	if err == nil {
+		t.Fatal("expected error for empty PostgresDSN")
+	}
+	if !strings.Contains(err.Error(), "POSTGRES_DSN") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
 func TestNewGRPCServer_MissingJWTSecret(t *testing.T) {
-	_, err := server.NewGRPCServer(server.Config{})
+	_, err := server.NewGRPCServer(server.Config{PostgresDSN: "dummy"})
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -161,6 +174,7 @@ func TestNewGRPCServer_MissingJWTSecret(t *testing.T) {
 
 func TestNewGRPCServer_EmptyJWTSecret(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
+		PostgresDSN:   "dummy",
 		InternalToken: "valid-token-that-is-long-enough-for-testing",
 	})
 	if err == nil {
@@ -173,7 +187,8 @@ func TestNewGRPCServer_EmptyJWTSecret(t *testing.T) {
 
 func TestNewGRPCServer_EmptyInternalToken(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
-		JWTSecret: "valid-secret-that-is-long-enough-for-hs256-algorithm",
+		PostgresDSN: "dummy",
+		JWTSecret:   "valid-secret-that-is-long-enough-for-hs256-algorithm",
 	})
 	if err == nil {
 		t.Fatal("expected error")
@@ -185,6 +200,7 @@ func TestNewGRPCServer_EmptyInternalToken(t *testing.T) {
 
 func TestNewGRPCServer_PlaceholderJWTSecret(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
+		PostgresDSN:   "dummy",
 		JWTSecret:     "replace-with-a-long-random-secret",
 		InternalToken: "valid-token-that-is-long-enough-for-tests",
 	})
@@ -195,6 +211,7 @@ func TestNewGRPCServer_PlaceholderJWTSecret(t *testing.T) {
 
 func TestNewGRPCServer_PlaceholderInternalToken(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
+		PostgresDSN:   "dummy",
 		JWTSecret:     "valid-secret-that-is-long-enough-for-hs256-algorithm",
 		InternalToken: "replace-with-a-long-random-internal-token",
 	})
@@ -205,6 +222,7 @@ func TestNewGRPCServer_PlaceholderInternalToken(t *testing.T) {
 
 func TestNewGRPCServer_JWTSecretTooShort(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
+		PostgresDSN:   "dummy",
 		JWTSecret:     "short",
 		InternalToken: "valid-token-that-is-long-enough-for-tests",
 	})
@@ -218,6 +236,7 @@ func TestNewGRPCServer_JWTSecretTooShort(t *testing.T) {
 
 func TestNewGRPCServer_InternalTokenTooShort(t *testing.T) {
 	_, err := server.NewGRPCServer(server.Config{
+		PostgresDSN:   "dummy",
 		JWTSecret:     "valid-secret-that-is-long-enough-for-hs256-algorithm",
 		InternalToken: "short",
 	})

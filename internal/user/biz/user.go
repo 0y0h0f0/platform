@@ -3,6 +3,7 @@ package biz
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/mail"
 	"os"
 	"regexp"
@@ -12,10 +13,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 
 	"task-platform/internal/user/data"
 	"task-platform/pkg/xerr"
+	"task-platform/pkg/xredis"
 )
 
 const (
@@ -27,21 +30,16 @@ var (
 	bcryptCost = func() int {
 		s := os.Getenv("BCRYPT_COST")
 		if s == "" {
-			return 6
+			return 10
 		}
 		v, err := strconv.Atoi(s)
 		if err != nil || v < 4 || v > 14 {
-			return 6
+			return 10
 		}
 		return v
 	}()
 
-	bcryptMaxCost = func() int {
-		if bcryptCost+2 > 14 {
-			return 14
-		}
-		return bcryptCost + 2
-	}()
+
 )
 
 var (
@@ -54,6 +52,7 @@ type UserBiz struct {
 	repo          data.UserRepository
 	rdb           *redis.Client
 	weakPasswords map[string]bool
+	logger        *zap.Logger
 }
 
 func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []string) *UserBiz {
@@ -61,7 +60,13 @@ func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []str
 	for _, pw := range weakPasswords {
 		set[pw] = true
 	}
-	return &UserBiz{repo: repo, rdb: rdb, weakPasswords: set}
+	return &UserBiz{repo: repo, rdb: rdb, weakPasswords: set, logger: zap.NewNop()}
+}
+
+func (b *UserBiz) SetLogger(logger *zap.Logger) {
+	if logger != nil {
+		b.logger = logger
+	}
 }
 
 func HashPassword(plain string) (string, error) {
@@ -123,19 +128,26 @@ func (b *UserBiz) Register(ctx context.Context, username, email, password string
 }
 
 func (b *UserBiz) Login(ctx context.Context, account, password string) (*data.User, error) {
+	if strings.Contains(account, "@") {
+		account = strings.ToLower(account)
+	}
 	user, err := b.repo.FindByAccount(ctx, account)
 	if err != nil {
-		return nil, err
+		return nil, xerr.NewError(xerr.CodeUnauthenticated, "invalid account or password")
 	}
 	if err := VerifyPassword(user.PasswordHash, password); err != nil {
-		return nil, err
+		return nil, xerr.NewError(xerr.CodeUnauthenticated, "invalid account or password")
 	}
 	if user.Status != 0 {
-		return nil, xerr.NewError(xerr.CodePermissionDenied, "account is disabled")
+		return nil, xerr.NewError(xerr.CodeUnauthenticated, "invalid account or password")
 	}
 	if needsRehash(user.PasswordHash) {
 		if rehashed, err := HashPassword(password); err == nil {
-			_ = b.repo.UpdatePasswordHash(ctx, user.ID, rehashed)
+			if err := b.repo.UpdatePasswordHash(ctx, user.ID, rehashed); err != nil {
+				b.logger.Error("failed to rehash password",
+					zap.String("user_id", user.ID),
+					zap.Error(err))
+			}
 		}
 	}
 	return user, nil
@@ -146,7 +158,7 @@ func needsRehash(hash string) bool {
 	if err != nil {
 		return false
 	}
-	return cost > bcryptMaxCost
+	return cost < bcryptCost
 }
 
 func (b *UserBiz) GetUser(ctx context.Context, userID string) (*data.User, error) {
@@ -208,10 +220,17 @@ func (b *UserBiz) BatchGetUsers(ctx context.Context, ids []string) ([]*data.User
 func (b *UserBiz) getCachedUser(ctx context.Context, userID string) *data.User {
 	raw, err := b.rdb.Get(ctx, userCachePrefix+userID).Bytes()
 	if err != nil {
+		if !errors.Is(err, redis.Nil) {
+			b.logger.Warn("user cache get failed", zap.String("user_id", userID), zap.Error(err))
+		} else {
+			xredis.IncrCacheMiss()
+		}
 		return nil
 	}
+	xredis.IncrCacheHit()
 	var u data.User
 	if err := json.Unmarshal(raw, &u); err != nil {
+		b.logger.Warn("user cache deserialize failed", zap.String("user_id", userID), zap.Error(err))
 		return nil
 	}
 	return &u
@@ -220,7 +239,10 @@ func (b *UserBiz) getCachedUser(ctx context.Context, userID string) *data.User {
 func (b *UserBiz) cacheUser(ctx context.Context, u *data.User) {
 	raw, err := json.Marshal(u)
 	if err != nil {
+		b.logger.Warn("user cache marshal failed", zap.String("user_id", u.ID), zap.Error(err))
 		return
 	}
-	b.rdb.Set(ctx, userCachePrefix+u.ID, raw, userCacheTTL)
+	if err := b.rdb.Set(ctx, userCachePrefix+u.ID, raw, userCacheTTL).Err(); err != nil {
+		b.logger.Warn("user cache set failed", zap.String("user_id", u.ID), zap.Error(err))
+	}
 }

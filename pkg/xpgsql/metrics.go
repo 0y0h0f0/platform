@@ -55,19 +55,40 @@ func (p *metricsPlugin) Initialize(db *gorm.DB) error {
 	p.tracer = otel.Tracer(tracerName)
 	registerMetrics()
 
-	_ = db.Callback().Create().Before("gorm:create").Register("metrics:before_create", p.before("create"))
-	_ = db.Callback().Query().Before("gorm:query").Register("metrics:before_query", p.before("query"))
-	_ = db.Callback().Update().Before("gorm:update").Register("metrics:before_update", p.before("update"))
-	_ = db.Callback().Delete().Before("gorm:delete").Register("metrics:before_delete", p.before("delete"))
-	_ = db.Callback().Row().Before("gorm:row").Register("metrics:before_row", p.before("row"))
-	_ = db.Callback().Raw().Before("gorm:raw").Register("metrics:before_raw", p.before("raw"))
+	regs := []func(string, func(*gorm.DB)) error{
+		db.Callback().Create().Before("gorm:create").Register,
+		db.Callback().Query().Before("gorm:query").Register,
+		db.Callback().Update().Before("gorm:update").Register,
+		db.Callback().Delete().Before("gorm:delete").Register,
+		db.Callback().Row().Before("gorm:row").Register,
+		db.Callback().Raw().Before("gorm:raw").Register,
+		db.Callback().Create().After("gorm:create").Register,
+		db.Callback().Query().After("gorm:query").Register,
+		db.Callback().Update().After("gorm:update").Register,
+		db.Callback().Delete().After("gorm:delete").Register,
+		db.Callback().Row().After("gorm:row").Register,
+		db.Callback().Raw().After("gorm:raw").Register,
+	}
 
-	_ = db.Callback().Create().After("gorm:create").Register("metrics:after_create", p.after("create"))
-	_ = db.Callback().Query().After("gorm:query").Register("metrics:after_query", p.after("query"))
-	_ = db.Callback().Update().After("gorm:update").Register("metrics:after_update", p.after("update"))
-	_ = db.Callback().Delete().After("gorm:delete").Register("metrics:after_delete", p.after("delete"))
-	_ = db.Callback().Row().After("gorm:row").Register("metrics:after_row", p.after("row"))
-	_ = db.Callback().Raw().After("gorm:raw").Register("metrics:after_raw", p.after("raw"))
+	names := []string{
+		"metrics:before_create", "metrics:before_query", "metrics:before_update",
+		"metrics:before_delete", "metrics:before_row", "metrics:before_raw",
+		"metrics:after_create", "metrics:after_query", "metrics:after_update",
+		"metrics:after_delete", "metrics:after_row", "metrics:after_raw",
+	}
+
+	callbacks := []func(*gorm.DB){
+		p.before("create"), p.before("query"), p.before("update"),
+		p.before("delete"), p.before("row"), p.before("raw"),
+		p.after("create"), p.after("query"), p.after("update"),
+		p.after("delete"), p.after("row"), p.after("raw"),
+	}
+
+	for i, register := range regs {
+		if err := register(names[i], callbacks[i]); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -97,7 +118,10 @@ func (p *metricsPlugin) after(op string) func(*gorm.DB) {
 	return func(db *gorm.DB) {
 		startVal, exists := db.InstanceGet("metrics:start:" + op)
 		if exists {
-			start := startVal.(time.Time)
+			start, ok := startVal.(time.Time)
+			if !ok {
+				return
+			}
 			duration := time.Since(start).Seconds()
 			dbQueryDuration.WithLabelValues(op).Observe(duration)
 		}
@@ -109,7 +133,10 @@ func (p *metricsPlugin) after(op string) func(*gorm.DB) {
 		if !exists {
 			return
 		}
-		span := spanVal.(trace.Span)
+		span, ok := spanVal.(trace.Span)
+		if !ok {
+			return
+		}
 
 		if db.Error != nil && db.Error != gorm.ErrRecordNotFound {
 			span.SetStatus(codes.Error, db.Error.Error())

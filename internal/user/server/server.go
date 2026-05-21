@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"time"
@@ -48,8 +51,8 @@ func DefaultConfig() Config {
 	return Config{
 		GRPCAddr:          envOrDefault("GRPC_ADDR", ":9091"),
 		AdminAddr:         envOrDefault("ADMIN_ADDR", ":8081"),
-		ReflectionEnabled: true,
-		PostgresDSN:       envOrDefault("POSTGRES_DSN", "host=127.0.0.1 port=5433 user=postgres password=postgres dbname=task_platform sslmode=disable"),
+		ReflectionEnabled: false,
+		PostgresDSN:       os.Getenv("POSTGRES_DSN"),
 		RedisAddr:         fmt.Sprintf("%s:%s", envOrDefault("REDIS_HOST", "127.0.0.1"), envOrDefault("REDIS_PORT", "6380")),
 		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
 		JWTSecret:         os.Getenv("JWT_SECRET"),
@@ -59,6 +62,9 @@ func DefaultConfig() Config {
 }
 
 func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
+	if cfg.PostgresDSN == "" {
+		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "POSTGRES_DSN is required")
+	}
 	if err := validateSecret("JWT_SECRET", cfg.JWTSecret, 32); err != nil {
 		return nil, err
 	}
@@ -86,11 +92,14 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 	jwtManager := xjwt.NewManager(cfg.JWTSecret)
 	svc := service.NewUserService(b, jwtManager)
 
-	grpcServer := xgrpc.NewServer(cfg.ReflectionEnabled)
-
-	logger, _ := zap.NewProduction()
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Printf("WARN: failed to create zap logger, falling back to no-op: %v", err)
+		logger = zap.NewNop()
+	}
+	b.SetLogger(logger)
 	interceptor := newAuthInterceptor(cfg.InternalToken, rdb)
-	grpcServer.GRPC = grpc.NewServer(
+	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			xgrpc.UnaryServerMetricsInterceptor(),
@@ -98,6 +107,8 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 			interceptor,
 		),
 	)
+
+	grpcServer := xgrpc.NewServer(srv, cfg.ReflectionEnabled)
 
 	userv1.RegisterUserServiceServer(grpcServer.GRPC, svc)
 
@@ -112,7 +123,9 @@ func newAuthInterceptor(internalToken string, rdb *redis.Client) grpc.UnaryServe
 		}
 
 		token := singleValue(md, "x-internal-token")
-		if token != internalToken {
+		got := sha256.Sum256([]byte(token))
+		want := sha256.Sum256([]byte(internalToken))
+		if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 			return nil, status.Error(codes.Unauthenticated, "invalid internal token")
 		}
 

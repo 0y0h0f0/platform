@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -30,15 +31,20 @@ var (
 			Help: "Current number of inflight HTTP requests.",
 		},
 	)
+
+	httpMetricsOnce sync.Once
 )
 
-func init() {
-	prometheus.MustRegister(httpRequestsTotal)
-	prometheus.MustRegister(httpRequestDuration)
-	prometheus.MustRegister(httpRequestsInflight)
+func registerHTTPMetrics() {
+	httpMetricsOnce.Do(func() {
+		prometheus.MustRegister(httpRequestsTotal)
+		prometheus.MustRegister(httpRequestDuration)
+		prometheus.MustRegister(httpRequestsInflight)
+	})
 }
 
 func HTTPMetrics() gin.HandlerFunc {
+	registerHTTPMetrics()
 	return func(c *gin.Context) {
 		start := time.Now()
 		httpRequestsInflight.Inc()

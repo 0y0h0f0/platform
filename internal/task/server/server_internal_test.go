@@ -246,10 +246,11 @@ func TestUserClientAdapter_GetUser_Success(t *testing.T) {
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
-	client, err := newUserServiceClient(lis.Addr().String(), "test-token-123456")
+	client, conn, err := newUserServiceClient(lis.Addr().String(), "test-token-123456")
 	if err != nil {
 		t.Fatalf("newUserServiceClient: %v", err)
 	}
+	defer func() { _ = conn.Close() }()
 
 	adapter := &userClientAdapter{client: client}
 	exists, active, err := adapter.GetUser(context.Background(), "user-1")
@@ -274,10 +275,11 @@ func TestUserClientAdapter_GetUser_NotFound(t *testing.T) {
 	go func() { _ = srv.Serve(lis) }()
 	t.Cleanup(srv.Stop)
 
-	client, err := newUserServiceClient(lis.Addr().String(), "test-token-123456")
+	client, conn, err := newUserServiceClient(lis.Addr().String(), "test-token-123456")
 	if err != nil {
 		t.Fatalf("newUserServiceClient: %v", err)
 	}
+	defer func() { _ = conn.Close() }()
 
 	adapter := &userClientAdapter{client: client}
 	exists, active, err := adapter.GetUser(context.Background(), "user-1")

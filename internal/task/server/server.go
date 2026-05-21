@@ -2,7 +2,10 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
+	"crypto/subtle"
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -43,8 +46,8 @@ func DefaultConfig() Config {
 	return Config{
 		GRPCAddr:          envOrDefault("GRPC_ADDR", ":9092"),
 		AdminAddr:         envOrDefault("ADMIN_ADDR", ":8082"),
-		ReflectionEnabled: true,
-		PostgresDSN:       envOrDefault("POSTGRES_DSN", "host=127.0.0.1 port=5433 user=postgres password=postgres dbname=task_platform sslmode=disable"),
+		ReflectionEnabled: false,
+		PostgresDSN:       os.Getenv("POSTGRES_DSN"),
 		RedisAddr:         fmt.Sprintf("%s:%s", envOrDefault("REDIS_HOST", "127.0.0.1"), envOrDefault("REDIS_PORT", "6380")),
 		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
 		InternalToken:     os.Getenv("INTERNAL_TOKEN"),
@@ -53,6 +56,9 @@ func DefaultConfig() Config {
 }
 
 func NewGRPCServer(cfg Config) (*ServerBundle, error) {
+	if cfg.PostgresDSN == "" {
+		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "POSTGRES_DSN is required")
+	}
 	if err := validateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
 		return nil, err
 	}
@@ -62,9 +68,9 @@ func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 		return nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("connect postgres: %v", err))
 	}
 
-	userClient, err := newUserServiceClient(cfg.UserServiceAddr, cfg.InternalToken)
+	userClient, userConn, err := newUserServiceClient(cfg.UserServiceAddr, cfg.InternalToken)
 	if err != nil {
-		return nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("connect user-service: %v", err))
+		return nil, err
 	}
 
 	projectRepo := data.NewProjectRepository(db)
@@ -73,7 +79,11 @@ func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 	commentRepo := data.NewCommentRepository(db)
 	opLogRepo := data.NewOperationLogRepository(db)
 
-	logger, _ := zap.NewProduction()
+	logger, err := zap.NewProduction()
+	if err != nil {
+		log.Printf("WARN: failed to create zap logger, falling back to no-op: %v", err)
+		logger = zap.NewNop()
+	}
 	logWriter := biz.NewLogWriter(opLogRepo, logger)
 
 	rdb, redisErr := xredis.New(cfg.RedisAddr, cfg.RedisPassword, 0)
@@ -88,10 +98,8 @@ func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 	ob := biz.NewOpLogBiz(opLogRepo, projectRepo, taskRepo, memberRepo)
 	svc := service.NewTaskService(b, tb, cb, ob)
 
-	grpcServer := xgrpc.NewServer(cfg.ReflectionEnabled)
-
 	interceptor := newAuthInterceptor(cfg.InternalToken)
-	grpcServer.GRPC = grpc.NewServer(
+	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			xgrpc.UnaryServerMetricsInterceptor(),
@@ -99,15 +107,27 @@ func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 			interceptor,
 		),
 	)
+	grpcServer := xgrpc.NewServer(srv, cfg.ReflectionEnabled)
 
 	taskv1.RegisterTaskServiceServer(grpcServer.GRPC, svc)
 
-	return &ServerBundle{Server: grpcServer, LogWriter: logWriter}, nil
+	return &ServerBundle{Server: grpcServer, LogWriter: logWriter, userConn: userConn, logger: logger}, nil
 }
 
 type ServerBundle struct {
 	*xgrpc.Server
 	LogWriter *biz.LogWriter
+	userConn  *grpc.ClientConn
+	logger    *zap.Logger
+}
+
+func (b *ServerBundle) Shutdown() {
+	b.LogWriter.Shutdown()
+	if b.userConn != nil {
+		if err := b.userConn.Close(); err != nil {
+			b.logger.Warn("failed to close user-service connection", zap.Error(err))
+		}
+	}
 }
 
 var TestAuthInterceptor = newAuthInterceptor
@@ -152,7 +172,9 @@ func newAuthInterceptor(internalToken string) grpc.UnaryServerInterceptor {
 		}
 
 		token := singleValue(md, "x-internal-token")
-		if token != internalToken {
+		got := sha256.Sum256([]byte(token))
+		want := sha256.Sum256([]byte(internalToken))
+		if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 			return nil, status.Error(codes.Unauthenticated, "invalid internal token")
 		}
 
@@ -178,7 +200,7 @@ func singleValue(md metadata.MD, key string) string {
 	return vals[0]
 }
 
-func newUserServiceClient(addr, internalToken string) (userv1.UserServiceClient, error) {
+func newUserServiceClient(addr, internalToken string) (userv1.UserServiceClient, *grpc.ClientConn, error) {
 	metadataInterceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		md, _ := metadata.FromOutgoingContext(ctx)
 		if md == nil {
@@ -197,10 +219,10 @@ func newUserServiceClient(addr, internalToken string) (userv1.UserServiceClient,
 		),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("dial user-service: %w", err)
+		return nil, nil, xerr.NewError(xerr.CodeInternal, fmt.Sprintf("dial user-service: %v", err))
 	}
 
-	return userv1.NewUserServiceClient(conn), nil
+	return userv1.NewUserServiceClient(conn), conn, nil
 }
 
 type userClientAdapter struct {

@@ -34,6 +34,12 @@ var (
 		},
 	)
 	logWriterMetricsOnce sync.Once
+	logWriterWorkerPanic = prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Name: "task_platform_log_writer_worker_panic_total",
+			Help: "Total number of times the operation log writer worker panicked and was restarted.",
+		},
+	)
 )
 
 type LogWriter struct {
@@ -55,6 +61,7 @@ func NewLogWriter(repo data.OperationLogRepository, logger *zap.Logger) *LogWrit
 	logWriterMetricsOnce.Do(func() {
 		prometheus.MustRegister(logWriterChannelFull)
 		prometheus.MustRegister(logWriterBatchFailure)
+		prometheus.MustRegister(logWriterWorkerPanic)
 	})
 	w := &LogWriter{
 		repo:   repo,
@@ -112,6 +119,18 @@ flush:
 
 func (w *LogWriter) run() {
 	defer w.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			logWriterWorkerPanic.Inc()
+			w.logger.Error("operation log writer worker panicked, restarting",
+				zap.Any("panic", r),
+				zap.Stack("stack"))
+			if !w.closed.Load() {
+				w.wg.Add(1)
+				go w.run()
+			}
+		}
+	}()
 
 	batch := make([]*data.OperationLog, 0, logBatchSize)
 	ticker := time.NewTicker(logFlushInterval)

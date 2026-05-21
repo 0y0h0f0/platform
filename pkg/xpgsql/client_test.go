@@ -82,6 +82,24 @@ func TestNew_Success(t *testing.T) {
 		t.Fatalf("ping: %v", err)
 	}
 
+	// Run a query to exercise the metrics plugin before/after callbacks
+	var now int
+	if err := db.Raw("SELECT 1").Scan(&now).Error; err != nil {
+		t.Fatalf("raw query: %v", err)
+	}
+
+	// Exercise create callback path via auto-migrate of a temp struct
+	type temp struct {
+		ID uint `gorm:"primaryKey"`
+	}
+	if err := db.AutoMigrate(&temp{}); err == nil {
+		db.Create(&temp{})
+		db.First(&temp{})
+		db.Update("id", 1)
+		db.Delete(&temp{})
+		_ = db.Exec("DROP TABLE IF EXISTS temps")
+	}
+
 	stats := sqlDB.Stats()
 	if stats.MaxOpenConnections != 100 {
 		t.Errorf("MaxOpenConns = %d, want 100", stats.MaxOpenConnections)

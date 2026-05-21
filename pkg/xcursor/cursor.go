@@ -8,15 +8,15 @@ import (
 	"strings"
 )
 
-func EncodeCursor(fields map[string]any) string {
+func EncodeCursor(fields map[string]any) (string, error) {
 	if len(fields) == 0 {
-		return ""
+		return "", nil
 	}
 	b, err := json.Marshal(fields)
 	if err != nil {
-		return ""
+		return "", fmt.Errorf("encode cursor: %w", err)
 	}
-	return base64.URLEncoding.EncodeToString(b)
+	return base64.URLEncoding.EncodeToString(b), nil
 }
 
 func DecodeCursor(cursor string) (map[string]any, error) {

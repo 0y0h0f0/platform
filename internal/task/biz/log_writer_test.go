@@ -124,3 +124,52 @@ func TestLogWriter_ChannelFullDegrades(t *testing.T) {
 		t.Errorf("got %d logs, want 2000", count)
 	}
 }
+
+type panickingRepo struct {
+	panicOn int
+	count   int
+	mu      sync.Mutex
+}
+
+func (r *panickingRepo) CreateBatch(_ context.Context, _ []*data.OperationLog) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.count++
+	if r.count == r.panicOn {
+		panic("simulated db crash")
+	}
+	return nil
+}
+
+func (r *panickingRepo) ListByProject(_ context.Context, _ string, _ int, _ string) ([]*data.OperationLog, string, error) {
+	return nil, "", nil
+}
+
+func (r *panickingRepo) ListByTask(_ context.Context, _ string, _ int, _ string) ([]*data.OperationLog, string, error) {
+	return nil, "", nil
+}
+
+func TestLogWriter_WorkerPanicRecovery(t *testing.T) {
+	repo := &panickingRepo{panicOn: 1}
+	w := NewLogWriter(repo, zap.NewNop())
+
+	// Send enough logs to trigger a batch flush, causing a panic on first flush
+	for i := 0; i < 200; i++ {
+		w.Enqueue(context.Background(), &data.OperationLog{
+			OperatorID: "user-1",
+			Action:     "task.create",
+		})
+	}
+
+	// After the panic and recovery, logs should still be processable
+	time.Sleep(300 * time.Millisecond)
+	w.Shutdown()
+
+	// Verify the system didn't crash — some logs should have been persisted
+	repo.mu.Lock()
+	c := repo.count
+	repo.mu.Unlock()
+	if c == 0 {
+		t.Error("expected some logs to be persisted after panic recovery")
+	}
+}

@@ -54,8 +54,22 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 }
 
 func (h *ProjectHandler) List(c *gin.Context) {
-	limit, _ := strconv.Atoi(c.DefaultQuery("limit", "20"))
-	offset, _ := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	limit, err := strconv.Atoi(c.DefaultQuery("limit", "20"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+			Code: xerr.CodeInvalidArgument, Message: "invalid limit",
+			RequestID: middleware.GetRequestID(c.Request.Context()),
+		})
+		return
+	}
+	offset, err := strconv.Atoi(c.DefaultQuery("offset", "0"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+			Code: xerr.CodeInvalidArgument, Message: "invalid offset",
+			RequestID: middleware.GetRequestID(c.Request.Context()),
+		})
+		return
+	}
 	includeArchived := c.Query("include_archived") == "true"
 
 	res, err := h.taskClient.ListProjects(c.Request.Context(), &taskv1.ListProjectsRequest{
@@ -352,9 +366,14 @@ func (h *ProjectHandler) ListOperationLogs(c *gin.Context) {
 	limit := int32(20)
 	if limitStr := c.Query("limit"); limitStr != "" {
 		var l int32
-		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
-			limit = l
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err != nil {
+			c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+				Code: xerr.CodeInvalidArgument, Message: "invalid limit",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return
 		}
+		limit = l
 	}
 
 	res, err := h.taskClient.ListOperationLogs(c.Request.Context(), &taskv1.ListOperationLogsRequest{

@@ -4,25 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Status
 
-**Phase 0 (项目初始化) — COMPLETE.**  
-**Phase 1 (用户服务) — COMPLETE.**  
-Next: **Phase 2 (项目管理).**
+**All phases complete (Phase 0–6).**
 
-The repo is a working Go 1.26 microservices project. All three services (`api-gateway`, `user-service`, `task-service`) compile and start. The `user-service` is fully implemented with Register/Login/GetUser/BatchGetUsers gRPC endpoints. The `api-gateway` exposes the full auth flow over HTTP (register, login, logout, me) with JWT + Redis token blacklist. The `task-service` is still an empty skeleton.
-
-Key metrics as of 2026-05-19:
+Key metrics as of 2026-05-21:
 - `go build ./cmd/...` — all services compile
 - `make lint` — 0 issues (golangci-lint v2.12.2, Go 1.26.3)
 - `go test ./...` — all passing (unit + integration)
-- Coverage — 88.3% (`./internal/... ./pkg/...`)
-- Integration tests — 25 tests (gateway + user-service), real PG16 + Redis7 via testcontainers
-
-Remaining execution order from `plan.md` §17:
-8. ~~Implement CreateProject → AddMember → ArchiveProject → TransferOwnership~~ (Phase 2, next)
-9. Implement `CreateTask → AssignTask → ChangeTaskStatus → ListTasks` (optimistic lock, cursor pagination)
-10. Add comments, operation logs (async worker), cache invalidation, rate limiting, idempotency
-11. Enrich metrics + trace, load test, Grafana screenshots
-12. Finalize README, Postman Collection, interview script
+- Coverage — 80.2% (`./internal/... ./pkg/...`)
+- Integration tests — 74 tests (full E2E + gRPC integration), real PG16 + Redis7 via testcontainers
 
 ## Architecture (from `plan.md` §4)
 
@@ -48,7 +37,7 @@ Key architectural rules from `plan.md`:
 
 - External auth: `Authorization: Bearer <token>` (JWT HS256, access token only, 2h TTL).
 - JWT claims: `sub(user_id)`, `username`, `jti`, `iat`, `exp`.
-- **JWT is verified only at api-gateway** — signature, expiry, Redis blacklist. Internal services never hold the JWT secret.
+- **JWT is verified only at api-gateway** — signature, expiry, Redis blacklist. user-service holds the JWT secret for token signing only; task-service never touches JWTs.
 - `POST /auth/logout` is a **gateway-local operation**: parse `jti` from the current token, write to Redis blacklist (TTL = remaining token lifetime). No RPC to `user-service`.
 - `api-gateway → gRPC` calls must inject four metadata headers: `x-user-id`, `x-username`, `x-request-id`, `x-internal-token`.
 - `x-internal-token` is a static shared secret from env var; **every** internal RPC interceptor must validate it.
@@ -58,14 +47,17 @@ Key architectural rules from `plan.md`:
 ## Middleware Chain Order (`plan.md` §9.1)
 
 ```
-Recovery → RequestID → AccessLog → CORS → RateLimit(IP) → JWT → RateLimit(user) → Handler
+Recovery → MaxBodySize(1MB) → SecurityHeaders → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler
 ```
 
-**Implemented in `internal/gateway/server/server.go`.** All middlewares exist and are wired:
+**Implemented in `internal/gateway/server/server.go`** (via `xhttp.NewEngine` which adds `gin.Recovery()`). All middlewares exist and are wired:
+- `SecurityHeaders` — sets `X-Content-Type-Options`, `X-Frame-Options`, `Strict-Transport-Security`, `Referrer-Policy`, `CSP`, `X-Permitted-Cross-Domain-Policies`
 - `RequestID` — generates/propagates `X-Request-ID`, injects into gin context
+- `HTTPTrace` — OpenTelemetry span per request (extracts traceparent, records method/path/status)
+- `HTTPMetrics` — Prometheus counters + histogram for HTTP requests (method, path, status)
 - `AccessLog` — Zap JSON logging (method, path, status, latency, request-id)
 - `CORS` — permissive for local/dev (allows all origins); implemented in `internal/gateway/middleware/cors.go`
-- `RateLimitByIP` / `RateLimitByUser` — **noop stubs** (Phase 5 implementation); defined in `internal/gateway/middleware/ratelimit.go`
+- `RateLimitByIP` / `RateLimitByUser` — Redis token bucket; auth endpoints 5/s burst 10, regular 60/s burst 100 per IP; 100/s burst 200 per user; defined in `internal/gateway/middleware/ratelimit.go`
 - `Auth` — JWT validation + Redis blacklist check; skips public paths (`/api/v1/auth/register`, `/api/v1/auth/login`); implemented in `internal/gateway/middleware/auth.go`
 
 Parameter binding/validation happens inside handlers, not as a standalone Gin middleware. Inside a write handler: bind/validate first, then idempotency check — prevents invalid requests from consuming `Idempotency-Key` slots.
@@ -76,10 +68,10 @@ Four-layer architecture, all layers have tests:
 
 | Layer | Package | Status | Coverage |
 |-------|---------|--------|----------|
-| data | `internal/user/data/` | GORM model + UserRepository (Create/FindByAccount/FindByID/BatchFindByIDs) | 86.2% |
-| biz | `internal/user/biz/` | bcrypt, weak-password check, Register/Login/GetUser/BatchGetUsers(Redis-cached) | 87.2% |
+| data | `internal/user/data/` | GORM model + UserRepository (Create/FindByAccount/FindByID/BatchFindByIDs) | 75.8% |
+| biz | `internal/user/biz/` | bcrypt, weak-password check, Register/Login/GetUser/BatchGetUsers(Redis-cached) | 83.5% |
 | service | `internal/user/service/` | gRPC UserServiceServer impl (Register/Login/GetUser/BatchGetUsers) | 81.5% |
-| server | `internal/user/server/` | DI wiring, gRPC server startup, auth interceptor (x-internal-token + x-user-id validation) | 94.9% |
+| server | `internal/user/server/` | DI wiring, gRPC server startup, auth interceptor (x-internal-token + x-user-id validation) | 94.6% |
 
 Config validation at startup: JWT_SECRET (≥32 chars, not placeholder), INTERNAL_TOKEN (≥16 chars, not placeholder), weak-passwords file must exist, DB must be reachable.
 
@@ -87,10 +79,10 @@ Config validation at startup: JWT_SECRET (≥32 chars, not placeholder), INTERNA
 
 | Package | Status | Coverage |
 |---------|--------|----------|
-| handler | Auth (Register/Login/Logout) + User (Me) HTTP handlers | 71.7% |
-| middleware | RequestID, AccessLog, CORS, Auth (JWT+blacklist), RateLimit stubs | 86.7% |
-| rpc | gRPC client factory with metadata interceptor (x-user-id, x-username, x-request-id, x-internal-token) | 93.8% |
-| server | DI wiring, middleware chain, route registration, Redis + JWT setup | 93.6% |
+| handler | Auth + User + Project + Task HTTP handlers (full CRUD) | 82.2% |
+| middleware | RequestID, HTTPTrace, HTTPMetrics, AccessLog, CORS, Auth, RateLimit | 67.5% |
+| rpc | gRPC client factory with metadata interceptor (x-user-id, x-username, x-request-id, x-internal-token) | 87.5% |
+| server | DI wiring, middleware chain, route registration, Redis + JWT setup | 96.2% |
 
 ## Layout (`plan.md` §5)
 
@@ -107,10 +99,10 @@ task-platform/
 │       ├── user/v1/
 │       └── task/v1/
 ├── internal/
-│   ├── gateway/{handler,middleware,rpc,service}/
+│   ├── gateway/{handler,middleware,rpc}/
 │   ├── user/{biz,data,service,server}/   # biz=domain, data=repo, service=gRPC impl, server=wiring
 │   └── task/{biz,data,service,server}/
-├── pkg/{xerr,xgrpc,xhttp,xjwt,xlog,xtrace,xredis,xpgsql}/   # shared, prefixed with `x`
+├── pkg/{xerr,xgrpc,xhttp,xjwt,xlog,xtrace,xredis,xpgsql,xcursor,xratelimit}/   # shared, prefixed with `x`
 ├── configs/{local,dev,docker}/
 ├── migrations/               # SQL migrations per schema
 ├── scripts/                  # run-migrations.sh, seed.sh

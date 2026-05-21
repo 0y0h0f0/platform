@@ -2,6 +2,7 @@ package xpgsql
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strconv"
 	"sync"
@@ -22,6 +23,7 @@ func envInt(key string, defaultVal int) int {
 	}
 	v, err := strconv.Atoi(s)
 	if err != nil {
+		log.Printf("WARN: invalid value for %s=%q, using default %d: %v", key, s, defaultVal, err)
 		return defaultVal
 	}
 	return v

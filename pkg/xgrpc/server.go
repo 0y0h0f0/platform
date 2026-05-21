@@ -12,18 +12,17 @@ type Server struct {
 	Health *health.Server
 }
 
-func NewServer(enableReflection bool) *Server {
-	grpcServer := grpc.NewServer()
+func NewServer(srv *grpc.Server, enableReflection bool) *Server {
 	healthServer := health.NewServer()
-	grpc_health_v1.RegisterHealthServer(grpcServer, healthServer)
+	grpc_health_v1.RegisterHealthServer(srv, healthServer)
 	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	if enableReflection {
-		reflection.Register(grpcServer)
+		reflection.Register(srv)
 	}
 
 	return &Server{
-		GRPC:   grpcServer,
+		GRPC:   srv,
 		Health: healthServer,
 	}
 }

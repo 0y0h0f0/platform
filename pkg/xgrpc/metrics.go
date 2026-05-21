@@ -2,6 +2,7 @@ package xgrpc
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -47,17 +48,22 @@ var (
 		},
 		[]string{"grpc_method", "grpc_code"},
 	)
+
+	grpcMetricsOnce sync.Once
 )
 
-func init() {
-	prometheus.MustRegister(grpcServerRequestsTotal)
-	prometheus.MustRegister(grpcServerRequestDuration)
-	prometheus.MustRegister(grpcServerRequestsInflight)
-	prometheus.MustRegister(grpcClientRequestsTotal)
-	prometheus.MustRegister(grpcClientRequestDuration)
+func registerGrpcMetrics() {
+	grpcMetricsOnce.Do(func() {
+		prometheus.MustRegister(grpcServerRequestsTotal)
+		prometheus.MustRegister(grpcServerRequestDuration)
+		prometheus.MustRegister(grpcServerRequestsInflight)
+		prometheus.MustRegister(grpcClientRequestsTotal)
+		prometheus.MustRegister(grpcClientRequestDuration)
+	})
 }
 
 func UnaryServerMetricsInterceptor() grpc.UnaryServerInterceptor {
+	registerGrpcMetrics()
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 		grpcServerRequestsInflight.Inc()
@@ -74,6 +80,7 @@ func UnaryServerMetricsInterceptor() grpc.UnaryServerInterceptor {
 }
 
 func UnaryClientMetricsInterceptor() grpc.UnaryClientInterceptor {
+	registerGrpcMetrics()
 	return func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
 		start := time.Now()
 

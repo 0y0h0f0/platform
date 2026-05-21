@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -32,28 +34,42 @@ func (w *bodyCaptureWriter) Write(b []byte) (int, error) {
 func checkIdempotencyKey(ctx context.Context, rdb *redis.Client, key string) bool {
 	ok, err := rdb.SetNX(ctx, idempotencyPrefix+key, idempotencyPending, idempotencyTTL).Result()
 	if err != nil {
+		log.Printf("WARN: idempotency key check failed, proceeding without guarantee: %v", err)
 		return false
 	}
 	return !ok
 }
 
 func getIdempotencyResult(ctx context.Context, rdb *redis.Client, key string) string {
-	val, _ := rdb.Get(ctx, idempotencyPrefix+key).Result()
+	val, err := rdb.Get(ctx, idempotencyPrefix+key).Result()
+	if err != nil && !errors.Is(err, redis.Nil) {
+		log.Printf("WARN: idempotency result retrieval failed: %v", err)
+	}
 	return val
 }
 
 func storeIdempotencyResult(ctx context.Context, rdb *redis.Client, key, body string) {
-	rdb.Set(ctx, idempotencyPrefix+key, body, idempotencyTTL)
+	if err := rdb.Set(ctx, idempotencyPrefix+key, body, idempotencyTTL).Err(); err != nil {
+		log.Printf("WARN: idempotency result storage failed: %v", err)
+	}
 }
 
 func clearIdempotencyKey(ctx context.Context, rdb *redis.Client, key string) {
-	rdb.Del(ctx, idempotencyPrefix+key)
+	if err := rdb.Del(ctx, idempotencyPrefix+key).Err(); err != nil {
+		log.Printf("WARN: idempotency key cleanup failed: %v", err)
+	}
 }
 
 func SetupIdempotency(c *gin.Context, rdb *redis.Client) (shouldReturn bool, cleanup func()) {
 	key := c.GetHeader("Idempotency-Key")
 	if key == "" || rdb == nil {
 		return false, func() {}
+	}
+
+	// Scope idempotency keys to the authenticated user
+	userID := middleware.GetUserID(c.Request.Context())
+	if userID != "" {
+		key = userID + ":" + key
 	}
 
 	if checkIdempotencyKey(c.Request.Context(), rdb, key) {

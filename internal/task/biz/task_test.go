@@ -388,6 +388,189 @@ func TestChangeTaskStatus_SameState(t *testing.T) {
 	}
 }
 
+func testTransitionToState(t *testing.T, tb *biz.TaskBiz, taskID, callerID string, fromStatus, toStatus int32, fromVersion int64) (int64, int32) {
+	t.Helper()
+	updated, err := tb.ChangeTaskStatus(context.Background(), taskID, callerID, toStatus, fromVersion)
+	if err != nil {
+		t.Fatalf("transition %d -> %d: %v", fromStatus, toStatus, err)
+	}
+	if updated.Status != toStatus {
+		t.Errorf("status = %d, want %d", updated.Status, toStatus)
+	}
+	return updated.Version, updated.Status
+}
+
+func TestStateMachine_AllValidTransitions(t *testing.T) {
+	pb, tb, cleanup, caller, _ := setupTaskBiz(t)
+	defer cleanup()
+
+	project, err := pb.CreateProject(context.Background(), caller, "StateMachine", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	type transitionTest struct {
+		name   string
+		to     int32
+		setup  func(taskID, callerID string) (fromStatus int32, version int64)
+	}
+
+	tests := []transitionTest{
+		// From TODO (initial state)
+		{
+			name: "todo -> doing",
+			to:   data.TaskStatusDoing,
+			setup: func(taskID, callerID string) (int32, int64) {
+				return data.TaskStatusTodo, 0
+			},
+		},
+		{
+			name: "todo -> done",
+			to:   data.TaskStatusDone,
+			setup: func(taskID, callerID string) (int32, int64) {
+				return data.TaskStatusTodo, 0
+			},
+		},
+		{
+			name: "todo -> cancelled",
+			to:   data.TaskStatusCancelled,
+			setup: func(taskID, callerID string) (int32, int64) {
+				return data.TaskStatusTodo, 0
+			},
+		},
+		// From DOING
+		{
+			name: "doing -> done",
+			to:   data.TaskStatusDone,
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				return data.TaskStatusDoing, v
+			},
+		},
+		{
+			name: "doing -> cancelled",
+			to:   data.TaskStatusCancelled,
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				return data.TaskStatusDoing, v
+			},
+		},
+		{
+			name: "doing -> todo",
+			to:   data.TaskStatusTodo,
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				return data.TaskStatusDoing, v
+			},
+		},
+		// From DONE
+		{
+			name: "done -> doing",
+			to:   data.TaskStatusDoing,
+			setup: func(taskID, callerID string) (int32, int64) {
+				v1, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				v2, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusDoing, data.TaskStatusDone, v1)
+				return data.TaskStatusDone, v2
+			},
+		},
+		// From CANCELLED
+		{
+			name: "cancelled -> todo",
+			to:   data.TaskStatusTodo,
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusCancelled, 0)
+				return data.TaskStatusCancelled, v
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task, err := tb.CreateTask(context.Background(), project.ID, caller, tt.name, "")
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+
+			fromStatus, version := tt.setup(task.ID, caller)
+			updated, err := tb.ChangeTaskStatus(context.Background(), task.ID, caller, tt.to, version)
+			if err != nil {
+				t.Fatalf("ChangeTaskStatus (%d -> %d): %v", fromStatus, tt.to, err)
+			}
+			if updated.Status != tt.to {
+				t.Errorf("status = %d, want %d", updated.Status, tt.to)
+			}
+		})
+	}
+}
+
+func TestStateMachine_AllInvalidTransitions(t *testing.T) {
+	pb, tb, cleanup, caller, _ := setupTaskBiz(t)
+	defer cleanup()
+
+	project, err := pb.CreateProject(context.Background(), caller, "StateMachineInvalid", "")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+
+	type invalidTransition struct {
+		name     string
+		setup    func(taskID, callerID string) (fromStatus int32, version int64)
+		attempt  int32
+	}
+
+	tests := []invalidTransition{
+		{
+			name: "done -> todo",
+			setup: func(taskID, callerID string) (int32, int64) {
+				v1, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				v2, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusDoing, data.TaskStatusDone, v1)
+				return data.TaskStatusDone, v2
+			},
+			attempt: data.TaskStatusTodo,
+		},
+		{
+			name: "done -> cancelled",
+			setup: func(taskID, callerID string) (int32, int64) {
+				v1, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusDoing, 0)
+				v2, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusDoing, data.TaskStatusDone, v1)
+				return data.TaskStatusDone, v2
+			},
+			attempt: data.TaskStatusCancelled,
+		},
+		{
+			name: "cancelled -> doing",
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusCancelled, 0)
+				return data.TaskStatusCancelled, v
+			},
+			attempt: data.TaskStatusDoing,
+		},
+		{
+			name: "cancelled -> done",
+			setup: func(taskID, callerID string) (int32, int64) {
+				v, _ := testTransitionToState(t, tb, taskID, callerID, data.TaskStatusTodo, data.TaskStatusCancelled, 0)
+				return data.TaskStatusCancelled, v
+			},
+			attempt: data.TaskStatusDone,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			task, err := tb.CreateTask(context.Background(), project.ID, caller, tt.name, "")
+			if err != nil {
+				t.Fatalf("CreateTask: %v", err)
+			}
+
+			fromStatus, version := tt.setup(task.ID, caller)
+			_, err = tb.ChangeTaskStatus(context.Background(), task.ID, caller, tt.attempt, version)
+			if err == nil {
+				t.Errorf("expected error for invalid transition %d -> %d", fromStatus, tt.attempt)
+			}
+		})
+	}
+}
+
 func TestListTasks_WithFilterHash(t *testing.T) {
 	pb, tb, cleanup, caller, _ := setupTaskBiz(t)
 	defer cleanup()

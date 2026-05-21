@@ -54,7 +54,7 @@ func (b *CommentBiz) CreateComment(ctx context.Context, taskID, callerID, conten
 		TaskID:     &taskID,
 		OperatorID: callerID,
 		Action:     data.ActionCommentCreate,
-		Detail:     `{"comment_id":"` + comment.ID + `"}`,
+		Detail:     jsonDetail(map[string]string{"comment_id": comment.ID}),
 	})
 
 	return comment, nil
@@ -89,7 +89,7 @@ func (b *CommentBiz) DeleteComment(ctx context.Context, taskID, commentID, calle
 		TaskID:     &taskID,
 		OperatorID: callerID,
 		Action:     data.ActionCommentDelete,
-		Detail:     `{"comment_id":"` + commentID + `"}`,
+		Detail:     jsonDetail(map[string]string{"comment_id": commentID}),
 	})
 
 	return deleted, nil

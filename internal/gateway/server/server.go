@@ -65,6 +65,8 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 		"/api/v1/auth/login",
 	}
 
+	engine.Use(middleware.MaxBodySize(1 << 20)) // 1 MB
+	engine.Use(middleware.SecurityHeaders())
 	engine.Use(middleware.RequestID())
 	engine.Use(middleware.HTTPTrace())
 	engine.Use(middleware.HTTPMetrics())
@@ -124,10 +126,12 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	}
 
 	cleanup := func() error {
-		if err := clients.Close(); err != nil {
-			return err
+		cerr := clients.Close()
+		rerr := rdb.Close()
+		if cerr != nil {
+			return cerr
 		}
-		return rdb.Close()
+		return rerr
 	}
 
 	return engine, cleanup, nil

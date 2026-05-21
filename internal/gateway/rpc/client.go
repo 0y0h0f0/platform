@@ -73,9 +73,10 @@ func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 }
 
 func (c *Clients) Close() error {
-	if err := c.userConn.Close(); err != nil {
-		_ = c.taskConn.Close()
-		return err
+	uerr := c.userConn.Close()
+	terr := c.taskConn.Close()
+	if uerr != nil {
+		return uerr
 	}
-	return c.taskConn.Close()
+	return terr
 }

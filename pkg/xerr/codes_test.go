@@ -227,7 +227,7 @@ func TestToHTTPResponse_PlainError(t *testing.T) {
 	if resp.Code != xerr.CodeInternal {
 		t.Errorf("Code = %s", resp.Code)
 	}
-	if resp.Message != "something went wrong" {
+	if resp.Message != "internal server error" {
 		t.Errorf("Message = %s", resp.Message)
 	}
 }

@@ -42,8 +42,10 @@ type stubTaskClient struct {
 	updateRoleErr    error
 	removeMemberRes  *taskv1.RemoveProjectMemberResponse
 	removeMemberErr  error
-	leaveRes         *taskv1.LeaveProjectResponse
-	leaveErr         error
+	leaveRes            *taskv1.LeaveProjectResponse
+	leaveErr            error
+	listOpLogsRes       *taskv1.ListOperationLogsResponse
+	listOpLogsErr       error
 }
 
 func (s *stubTaskClient) CreateProject(_ context.Context, _ *taskv1.CreateProjectRequest, _ ...grpc.CallOption) (*taskv1.CreateProjectResponse, error) {
@@ -81,6 +83,9 @@ func (s *stubTaskClient) RemoveProjectMember(_ context.Context, _ *taskv1.Remove
 }
 func (s *stubTaskClient) LeaveProject(_ context.Context, _ *taskv1.LeaveProjectRequest, _ ...grpc.CallOption) (*taskv1.LeaveProjectResponse, error) {
 	return s.leaveRes, s.leaveErr
+}
+func (s *stubTaskClient) ListOperationLogs(_ context.Context, _ *taskv1.ListOperationLogsRequest, _ ...grpc.CallOption) (*taskv1.ListOperationLogsResponse, error) {
+	return s.listOpLogsRes, s.listOpLogsErr
 }
 
 func setupProjectHandler(t *testing.T) (*handler.ProjectHandler, *gin.Engine) {
@@ -430,5 +435,44 @@ func TestProjectHandler_NonGRPCError(t *testing.T) {
 	w := doRequest(r, http.MethodPost, "/projects/proj-1/members/me/leave", "")
 	if w.Code != http.StatusInternalServerError {
 		t.Errorf("status = %d, want %d", w.Code, http.StatusInternalServerError)
+	}
+}
+
+func TestListProjectOperationLogs_Success(t *testing.T) {
+	stub := &stubTaskClient{
+		listOpLogsRes: &taskv1.ListOperationLogsResponse{
+			Logs:       []*taskv1.OperationLog{},
+			NextCursor: "",
+		},
+	}
+	h := handler.NewProjectHandler(stub, nil, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
+		c.Next()
+	})
+	r.GET("/projects/:id/operation-logs", h.ListOperationLogs)
+
+	w := doRequest(r, http.MethodGet, "/projects/proj-1/operation-logs", "")
+	if w.Code != http.StatusOK {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusOK)
+	}
+}
+
+func TestListProjectOperationLogs_GRPCError(t *testing.T) {
+	stub := &stubTaskClient{
+		listOpLogsErr: status.Error(codes.NotFound, "project not found"),
+	}
+	h := handler.NewProjectHandler(stub, nil, nil)
+	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), middleware.CtxKeyRequestID, "req-1"))
+		c.Next()
+	})
+	r.GET("/projects/:id/operation-logs", h.ListOperationLogs)
+
+	w := doRequest(r, http.MethodGet, "/projects/proj-1/operation-logs", "")
+	if w.Code != http.StatusNotFound {
+		t.Errorf("status = %d, want %d", w.Code, http.StatusNotFound)
 	}
 }

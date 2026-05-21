@@ -1,6 +1,10 @@
 package xgrpc
 
-import "testing"
+import (
+	"testing"
+
+	"google.golang.org/grpc"
+)
 
 func TestNewServer(t *testing.T) {
 	t.Parallel()
@@ -24,7 +28,7 @@ func TestNewServer(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			server := NewServer(tc.enableReflection)
+			server := NewServer(grpc.NewServer(), tc.enableReflection)
 			if server == nil {
 				t.Fatal("NewServer() returned nil")
 			}

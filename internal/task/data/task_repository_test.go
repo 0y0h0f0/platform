@@ -273,7 +273,7 @@ func TestTaskList_CursorMissingFields(t *testing.T) {
 	repo := data.NewTaskRepository(db)
 
 	// cursor with valid base64+json but missing required fields
-	badCursor := xcursor.EncodeCursor(map[string]any{"foo": "bar"})
+	badCursor, _ := xcursor.EncodeCursor(map[string]any{"foo": "bar"})
 	_, _, err := repo.List(context.Background(), data.TaskFilter{
 		ProjectID: uid(), Cursor: badCursor,
 	})

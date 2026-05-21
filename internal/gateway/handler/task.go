@@ -70,16 +70,26 @@ func (h *TaskHandler) List(c *gin.Context) {
 
 	if statusStr := c.Query("status"); statusStr != "" {
 		var status int32
-		if _, err := fmt.Sscanf(statusStr, "%d", &status); err == nil {
-			req.Status = status
+		if _, err := fmt.Sscanf(statusStr, "%d", &status); err != nil {
+			c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+				Code: xerr.CodeInvalidArgument, Message: "invalid status",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return
 		}
+		req.Status = status
 	}
 
 	if limitStr := c.Query("limit"); limitStr != "" {
 		var limit int32
-		if _, err := fmt.Sscanf(limitStr, "%d", &limit); err == nil {
-			req.Limit = limit
+		if _, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil {
+			c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+				Code: xerr.CodeInvalidArgument, Message: "invalid limit",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return
 		}
+		req.Limit = limit
 	} else {
 		req.Limit = 20
 	}
@@ -276,9 +286,14 @@ func (h *TaskHandler) ListComments(c *gin.Context) {
 	limit := int32(20)
 	if limitStr := c.Query("limit"); limitStr != "" {
 		var l int32
-		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
-			limit = l
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err != nil {
+			c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+				Code: xerr.CodeInvalidArgument, Message: "invalid limit",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return
 		}
+		limit = l
 	}
 
 	res, err := h.taskClient.ListTaskComments(c.Request.Context(), &taskv1.ListTaskCommentsRequest{
@@ -334,9 +349,14 @@ func (h *TaskHandler) ListOperationLogs(c *gin.Context) {
 	limit := int32(20)
 	if limitStr := c.Query("limit"); limitStr != "" {
 		var l int32
-		if _, err := fmt.Sscanf(limitStr, "%d", &l); err == nil {
-			limit = l
+		if _, err := fmt.Sscanf(limitStr, "%d", &l); err != nil {
+			c.JSON(http.StatusBadRequest, &xerr.HTTPResponse{
+				Code: xerr.CodeInvalidArgument, Message: "invalid limit",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return
 		}
+		limit = l
 	}
 
 	res, err := h.taskClient.ListOperationLogs(c.Request.Context(), &taskv1.ListOperationLogsRequest{

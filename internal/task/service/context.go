@@ -10,12 +10,18 @@ const (
 )
 
 func GetUserID(ctx context.Context) string {
-	v, _ := ctx.Value(ctxKeyUserID).(string)
+	v, ok := ctx.Value(ctxKeyUserID).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 
 func GetUsername(ctx context.Context) string {
-	v, _ := ctx.Value(ctxKeyUsername).(string)
+	v, ok := ctx.Value(ctxKeyUsername).(string)
+	if !ok {
+		return ""
+	}
 	return v
 }
 

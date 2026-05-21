@@ -239,7 +239,11 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 		fields, err := xcursor.DecodeCursor(nextCursor)
 		if err == nil {
 			fields["filter_hash"] = filterHash
-			nextCursor = xcursor.EncodeCursor(fields)
+			var encErr error
+			nextCursor, encErr = xcursor.EncodeCursor(fields)
+			if encErr != nil {
+				nextCursor = ""
+			}
 		}
 	}
 
@@ -288,7 +292,7 @@ func (b *TaskBiz) AssignTask(ctx context.Context, taskID, callerID, assigneeID s
 		TaskID:     &taskID,
 		OperatorID: callerID,
 		Action:     data.ActionTaskAssign,
-		Detail:     `{"assignee_id":"` + assigneeID + `"}`,
+		Detail:     jsonDetail(map[string]string{"assignee_id": assigneeID}),
 	})
 	return updated, nil
 }
@@ -326,7 +330,7 @@ func (b *TaskBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string,
 		TaskID:     &taskID,
 		OperatorID: callerID,
 		Action:     data.ActionTaskStatusChange,
-		Detail:     `{"from_status":` + string(rune(task.Status+'0')) + `,"to_status":` + string(rune(status+'0')) + `}`,
+		Detail:     jsonDetail(map[string]int32{"from_status": task.Status, "to_status": status}),
 	})
 	return updated, nil
 }

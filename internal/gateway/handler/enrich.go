@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"log"
 
 	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
@@ -49,6 +50,7 @@ func fetchUserMap(ctx context.Context, client userv1.UserServiceClient, ids []st
 	}
 	res, err := client.BatchGetUsers(ctx, &userv1.BatchGetUsersRequest{UserIds: deduped})
 	if err != nil {
+		log.Printf("WARN: fetchUserMap failed, enrichment skipped: %v", err)
 		return nil
 	}
 	m := make(map[string]*userv1.User, len(res.Users))

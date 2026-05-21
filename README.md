@@ -2,7 +2,7 @@
 
 A campus-recruitment backend scaffold — team task collaboration platform built with Go microservices.
 
-**Status:** All phases complete. Services compile, tests pass (88%+ coverage), metrics + traces + Grafana dashboard in place, 1k QPS verified.
+**Status:** All phases complete. Services compile, tests pass (80%+ coverage), metrics + traces + Grafana dashboard in place, 1k QPS verified.
 
 ## Architecture
 
@@ -43,7 +43,7 @@ A campus-recruitment backend scaffold — team task collaboration platform built
                         Redis
 ```
 
-**Middleware chain:** `Recovery → RequestID → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
+**Middleware chain:** `Recovery → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
 
 **Service layer:** `handler(HTTP) → service(gRPC impl) → biz(domain) → data(repository/GORM)`
 

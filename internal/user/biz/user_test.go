@@ -2,6 +2,8 @@ package biz_test
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"golang.org/x/crypto/bcrypt"
@@ -228,21 +230,21 @@ func TestBatchGetUsers_TooManyIDs(t *testing.T) {
 }
 
 func TestNeedsRehash(t *testing.T) {
-	// cost=10 hash (generated with cost=10) should need rehash since default max is 8
-	cost10, _ := biz.HashPasswordWithCost("secret123", 10)
-	if !biz.NeedsRehash(cost10) {
-		t.Error("cost=10 hash should need rehash")
+	// cost=4 hash (weaker than default cost=10) should need rehash
+	cost4, _ := biz.HashPasswordWithCost("secret123", 4)
+	if !biz.NeedsRehash(cost4) {
+		t.Error("cost=4 hash should need rehash (upgrade to current cost)")
 	}
 
-	// cost=4 hash should not need rehash
-	cost4, _ := biz.HashPasswordWithCost("secret123", 4)
-	if biz.NeedsRehash(cost4) {
-		t.Error("cost=4 hash should not need rehash")
+	// cost=14 hash (stronger than default) should not need rehash
+	cost14, _ := biz.HashPasswordWithCost("secret123", 14)
+	if biz.NeedsRehash(cost14) {
+		t.Error("cost=14 hash should not need rehash")
 	}
 }
 
-func TestLogin_RehashesHighCostPassword(t *testing.T) {
-	oldHash, _ := biz.HashPasswordWithCost("secret123", 10)
+func TestLogin_RehashesWeakPassword(t *testing.T) {
+	oldHash, _ := biz.HashPasswordWithCost("secret123", 4)
 	var updatedHash string
 	repo := &mockRepo{
 		findByAccountFn: func(ctx context.Context, account string) (*data.User, error) {
@@ -267,10 +269,26 @@ func TestLogin_RehashesHighCostPassword(t *testing.T) {
 		t.Errorf("ID = %s", user.ID)
 	}
 	if updatedHash == "" {
-		t.Error("password should have been rehashed")
+		t.Error("password should have been rehashed (upgraded from cost 4 to 10)")
 	}
 	cost, _ := bcrypt.Cost([]byte(updatedHash))
-	if cost > 8 {
-		t.Errorf("rehashed cost = %d, want <= 8", cost)
+	if cost != 10 {
+		t.Errorf("rehashed cost = %d, want 10", cost)
+	}
+}
+
+func TestUserJSON_ExcludesPasswordHash(t *testing.T) {
+	u := &data.User{
+		ID:           "user-1",
+		Username:     "testuser",
+		Email:        "test@example.com",
+		PasswordHash: "$2a$10$secretbcrypthashshouldnotappearinjson",
+	}
+	raw, err := json.Marshal(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "PasswordHash") || strings.Contains(string(raw), "password_hash") {
+		t.Error("PasswordHash should not appear in JSON output")
 	}
 }

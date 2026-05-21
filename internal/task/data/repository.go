@@ -308,10 +308,15 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 	var nextCursor string
 	if len(tasks) > filter.Limit {
 		last := tasks[filter.Limit-1]
-		nextCursor = xcursor.EncodeCursor(map[string]any{
+		c, err := xcursor.EncodeCursor(map[string]any{
 			"created_at": last.CreatedAt.Format(time.RFC3339Nano),
 			"id":         last.ID,
 		})
+		if err != nil {
+			nextCursor = ""
+		} else {
+			nextCursor = c
+		}
 		tasks = tasks[:filter.Limit]
 	}
 
@@ -430,10 +435,15 @@ func (r *operationLogRepo) listLogs(ctx context.Context, where string, arg strin
 	var nextCursor string
 	if len(logs) > limit {
 		last := logs[limit-1]
-		nextCursor = xcursor.EncodeCursor(map[string]any{
+		c, err := xcursor.EncodeCursor(map[string]any{
 			"created_at": last.CreatedAt.Format(time.RFC3339Nano),
 			"id":         last.ID,
 		})
+		if err != nil {
+			nextCursor = ""
+		} else {
+			nextCursor = c
+		}
 		logs = logs[:limit]
 	}
 

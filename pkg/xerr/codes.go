@@ -150,6 +150,15 @@ func GRPCStatusToCode(st *status.Status) string {
 	}
 }
 
+func safeMessage(st *status.Status) string {
+	switch st.Code() {
+	case codes.Internal, codes.Unknown:
+		return "internal server error"
+	default:
+		return st.Message()
+	}
+}
+
 func ToHTTPResponse(err error, requestID string) *HTTPResponse {
 	if err == nil {
 		return &HTTPResponse{
@@ -161,9 +170,13 @@ func ToHTTPResponse(err error, requestID string) *HTTPResponse {
 
 	var e *Error
 	if errors.As(err, &e) {
+		msg := e.Message
+		if e.Code == CodeInternal {
+			msg = "internal server error"
+		}
 		return &HTTPResponse{
 			Code:      e.Code,
-			Message:   e.Message,
+			Message:   msg,
 			RequestID: requestID,
 		}
 	}
@@ -172,14 +185,14 @@ func ToHTTPResponse(err error, requestID string) *HTTPResponse {
 	if ok {
 		return &HTTPResponse{
 			Code:      GRPCStatusToCode(grpcStatus),
-			Message:   grpcStatus.Message(),
+			Message:   safeMessage(grpcStatus),
 			RequestID: requestID,
 		}
 	}
 
 	return &HTTPResponse{
 		Code:      CodeInternal,
-		Message:   err.Error(),
+		Message:   "internal server error",
 		RequestID: requestID,
 	}
 }

@@ -23,7 +23,8 @@ func main() {
 
 	dsn := os.Getenv("POSTGRES_DSN")
 	if dsn == "" {
-		dsn = "host=127.0.0.1 port=5433 user=postgres password=postgres dbname=task_platform sslmode=disable"
+		fmt.Fprintf(os.Stderr, "POSTGRES_DSN is required\n")
+		os.Exit(1)
 	}
 
 	db, err := xpgsql.New(dsn)

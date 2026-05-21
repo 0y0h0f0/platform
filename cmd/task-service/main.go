@@ -63,7 +63,12 @@ func run() error {
 		return fmt.Errorf("listen grpc: %w", err)
 	}
 
-	serverBundle, err := server.NewGRPCServer(server.DefaultConfig())
+	svcCfg := server.DefaultConfig()
+	svcCfg.GRPCAddr = cfg.GRPCAddr
+	svcCfg.AdminAddr = cfg.AdminAddr
+	svcCfg.ReflectionEnabled = cfg.ReflectionEnabled
+
+	serverBundle, err := server.NewGRPCServer(svcCfg)
 	if err != nil {
 		return fmt.Errorf("create grpc server: %w", err)
 	}
@@ -103,8 +108,8 @@ func run() error {
 
 	logger.Info("shutting down")
 
-	serverBundle.LogWriter.Shutdown()
-	logger.Info("operation log writer shut down")
+	serverBundle.Shutdown()
+	logger.Info("task server shut down")
 
 	if err := adminServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown admin http: %w", err)

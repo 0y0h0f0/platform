@@ -10,7 +10,10 @@ func TestEncodeDecodeCursor(t *testing.T) {
 		"id":         "abc-123",
 	}
 
-	encoded := EncodeCursor(fields)
+	encoded, err := EncodeCursor(fields)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if encoded == "" {
 		t.Fatal("encoded cursor should not be empty")
 	}
@@ -68,7 +71,10 @@ func TestDecodeCursor_Empty(t *testing.T) {
 }
 
 func TestEncodeCursor_Empty(t *testing.T) {
-	encoded := EncodeCursor(nil)
+	encoded, err := EncodeCursor(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if encoded != "" {
 		t.Errorf("nil fields should encode to empty string, got %s", encoded)
 	}
