@@ -1,0 +1,289 @@
+:root {
+  color: #111827;
+  background: #f3f4f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.app-shell {
+  min-height: 100vh;
+  background: #f3f4f6;
+}
+
+.app-sider {
+  min-height: 100vh;
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.app-brand {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  color: #ffffff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.app-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 12px;
+}
+
+.app-nav-item {
+  min-height: 40px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  border-radius: 6px;
+  color: #cbd5e1;
+  font-size: 14px;
+}
+
+.app-nav-item:hover,
+.app-nav-item.is-active {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.app-create-button {
+  margin-top: 8px;
+}
+
+.app-header {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 24px;
+  border-bottom: 1px solid #e5e7eb;
+  background: #ffffff;
+}
+
+.user-menu-button {
+  height: 40px;
+  padding: 0 8px;
+}
+
+.user-menu-name {
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.app-content {
+  padding: 32px;
+}
+
+.page-heading {
+  max-width: 880px;
+  margin-bottom: 24px;
+}
+
+.page-heading-row {
+  max-width: 1120px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.page-heading h1.ant-typography,
+.auth-heading h1.ant-typography {
+  margin: 0 0 8px;
+  font-size: 28px;
+  line-height: 1.25;
+  letter-spacing: 0;
+}
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px 16px;
+  background: #f3f4f6;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  border-radius: 8px;
+}
+
+.auth-heading {
+  margin-bottom: 24px;
+}
+
+.auth-footer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 20px;
+}
+
+.project-list-page {
+  max-width: 1120px;
+}
+
+.empty-workspace-card {
+  min-height: 360px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.page-skeleton {
+  min-height: 100vh;
+  padding: 32px;
+  background: #f3f4f6;
+}
+
+.route-error {
+  padding: 32px;
+}
+
+@media (max-width: 900px) {
+  .app-content {
+    padding: 20px;
+  }
+
+  .page-heading-row {
+    flex-direction: column;
+  }
+}
+
+.project-list-actions {
+  justify-content: flex-end;
+}
+
+.archive-toggle {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  white-space: nowrap;
+}
+
+.project-grid {
+  max-width: 1120px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.project-card {
+  min-height: 214px;
+  border-radius: 8px;
+}
+
+.project-card.is-archived {
+  opacity: 0.72;
+}
+
+.project-card .ant-card-head-title {
+  min-width: 0;
+}
+
+.project-card .ant-card-head-title .ant-space-item:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-card-description {
+  min-height: 44px;
+  margin-bottom: 20px;
+}
+
+.project-card-meta {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: center;
+  color: #6b7280;
+  font-size: 13px;
+}
+
+.project-card-meta .ant-typography {
+  margin: 0;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-pagination {
+  max-width: 1120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  margin-top: 24px;
+}
+
+.loading-state,
+.empty-state {
+  max-width: 1120px;
+  min-height: 280px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 12px;
+  border: 1px dashed #d1d5db;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.empty-state .ant-empty {
+  margin: 0;
+}
+
+.empty-state .ant-empty-image {
+  height: 120px;
+  margin-bottom: 12px;
+}
+
+.empty-state .ant-empty-image img {
+  max-width: 160px;
+  height: 120px;
+  object-fit: contain;
+}
+
+.empty-state .ant-empty-description {
+  margin-bottom: 8px;
+}
+
+.empty-state-action {
+  margin-top: 16px;
+}

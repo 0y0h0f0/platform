@@ -1,0 +1,67 @@
+import type { Task } from '@/api/types'
+import { Priority, TaskStatus } from '@/utils/constants'
+
+export function createMockTasks(): Task[] {
+  return [
+    {
+      id: 'task-login-wireframe',
+      project_id: 'project-web-console',
+      title: '设计登录页',
+      content: '完成登录、注册和鉴权错误状态的页面设计。',
+      status: TaskStatus.Todo,
+      priority: Priority.High,
+      assignee_id: 'user-2',
+      creator_id: 'user-1',
+      due_time: '2026-05-30T10:00:00Z',
+      version: 1,
+    },
+    {
+      id: 'task-kanban-api',
+      project_id: 'project-web-console',
+      title: '接入看板任务接口',
+      content: '使用 cursor 分页拉取任务并按状态分列。',
+      status: TaskStatus.Doing,
+      priority: Priority.Urgent,
+      assignee_id: 'user-1',
+      creator_id: 'user-1',
+      due_time: '2026-06-01T10:00:00Z',
+      version: 2,
+    },
+    {
+      id: 'task-msw-auth',
+      project_id: 'project-web-console',
+      title: '完善 MSW 鉴权 mock',
+      content: '覆盖 users/me、登录、注册和登出接口。',
+      status: TaskStatus.Done,
+      priority: Priority.Normal,
+      assignee_id: 'user-3',
+      creator_id: 'user-1',
+      due_time: '',
+      version: 4,
+    },
+    {
+      id: 'task-old-theme',
+      project_id: 'project-web-console',
+      title: '废弃旧主题变量',
+      content: '旧主题方案已取消，保留记录。',
+      status: TaskStatus.Cancelled,
+      priority: Priority.Low,
+      assignee_id: '',
+      creator_id: 'user-1',
+      due_time: '',
+      version: 1,
+    },
+    {
+      id: 'task-mobile-swipe',
+      project_id: 'project-mobile-board',
+      title: '移动端滑动操作验证',
+      content: '验证移动端任务卡片操作入口。',
+      status: TaskStatus.Todo,
+      priority: Priority.Normal,
+      assignee_id: 'user-1',
+      creator_id: 'user-1',
+      due_time: '',
+      version: 1,
+    },
+  ]
+}

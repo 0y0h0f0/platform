@@ -108,6 +108,19 @@ make run/task-service    # gRPC :9092, admin HTTP :8082
 
 Or run all three in separate terminals.
 
+
+### Frontend
+
+```bash
+cd web
+npm install
+npm run dev       # Proxy /api to the Go gateway
+npm run dev:mock  # Standalone MSW mode, no backend required
+npm run e2e       # Playwright E2E against MSW mode
+```
+
+See `web/README.md` for frontend quality checks and bundle stats generation.
+
 ### Test
 
 ```bash
