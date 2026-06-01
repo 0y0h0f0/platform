@@ -104,6 +104,7 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 		grpc.ChainUnaryInterceptor(
 			xgrpc.UnaryServerMetricsInterceptor(),
 			loggingInterceptor(logger),
+			xgrpc.UnaryServerTimeoutInterceptor(xgrpc.ServerTimeoutFromEnv()),
 			interceptor,
 		),
 	)

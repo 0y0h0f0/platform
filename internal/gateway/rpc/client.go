@@ -66,6 +66,7 @@ func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
+			xgrpc.UnaryClientTimeoutInterceptor(xgrpc.ClientTimeoutFromEnv()),
 			xgrpc.UnaryClientMetricsInterceptor(),
 			metadataInterceptor,
 		),

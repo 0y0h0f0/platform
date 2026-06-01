@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -13,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"task-platform/internal/gateway/middleware"
+	"task-platform/pkg/xerr"
 )
 
 const (
@@ -75,8 +75,12 @@ func SetupIdempotency(c *gin.Context, rdb *redis.Client) (shouldReturn bool, cle
 	if checkIdempotencyKey(c.Request.Context(), rdb, key) {
 		cached := getIdempotencyResult(c.Request.Context(), rdb, key)
 		if cached == idempotencyPending {
-			requestID := middleware.GetRequestID(c.Request.Context())
-			cached = fmt.Sprintf(`{"code":"OK","message":"request already processed","request_id":"%s"}`, requestID)
+			c.JSON(http.StatusConflict, &xerr.HTTPResponse{
+				Code:      xerr.CodeAborted,
+				Message:   "request is still processing, retry later",
+				RequestID: middleware.GetRequestID(c.Request.Context()),
+			})
+			return true, func() {}
 		}
 		c.Header("Content-Type", "application/json; charset=utf-8")
 		c.String(http.StatusOK, cached)

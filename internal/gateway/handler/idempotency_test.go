@@ -154,6 +154,47 @@ func TestSetupIdempotency_FirstRequest(t *testing.T) {
 	}
 }
 
+func TestSetupIdempotency_PendingReturnsConflict(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Request.Header.Set("Idempotency-Key", "pending-test")
+
+	shouldReturn, cleanup := SetupIdempotency(c, rdb)
+	if shouldReturn {
+		t.Fatal("first request should not short-circuit")
+	}
+
+	w2 := httptest.NewRecorder()
+	c2, _ := gin.CreateTestContext(w2)
+	c2.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c2.Request.Header.Set("Idempotency-Key", "pending-test")
+
+	shouldReturn, cleanup2 := SetupIdempotency(c2, rdb)
+	defer cleanup2()
+	if !shouldReturn {
+		t.Fatal("pending duplicate request should short-circuit")
+	}
+	if w2.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want %d", w2.Code, http.StatusConflict)
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(w2.Body.Bytes(), &body); err != nil {
+		t.Fatalf("response should be valid JSON: %v", err)
+	}
+	if body["code"] != "ABORTED" {
+		t.Fatalf("code = %v, want ABORTED", body["code"])
+	}
+
+	c.Writer.WriteHeader(http.StatusBadRequest)
+	cleanup()
+}
+
 func TestSetupIdempotency_ErrorResponseFreesKey(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})

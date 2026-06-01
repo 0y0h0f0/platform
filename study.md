@@ -1,7 +1,579 @@
-# 团队任务协作平台 - Go 后端学习路线
+# 团队任务协作平台 - Go 后端学习路线（Go 初学者详细版）
 
 > 适用对象：Go 新手，已有基本编程经验（了解变量、函数、循环、条件判断等概念），希望
 > 通过一个完整的生产级后端项目系统学习 Go 语言和工程实践。
+>
+> 学习目标：读完本文后，你应该能独立启动项目、看懂主要调用链、理解 Go 后端常见工程结构，
+> 并能围绕注册、登录、项目管理、任务流转、评论、操作日志、限流、幂等、测试和可观测性
+> 说清楚代码是如何工作的。
+
+---
+
+## 如何使用这份文档
+
+这不是一份只讲语法的 Go 教程，而是一份“边学 Go，边读真实项目”的学习手册。推荐按下面节奏学习：
+
+1. **先跑起来。** 不要先把所有代码看完。先完成附录 A 的启动命令，确认服务能跑，接口能访问。
+2. **再读主链路。** 从 `POST /api/v1/auth/register` 开始，按“HTTP handler → gRPC client → user-service → biz → data → PostgreSQL”追踪一次。
+3. **边读边改。** 每读完一个 Phase，至少做一个小改动，比如加一条校验、补一个测试、改一个错误消息。
+4. **最后再看工程化。** 限流、幂等、trace、metrics、异步日志等内容更抽象，适合在你已经看懂业务代码后学习。
+
+初学者最容易卡住的不是某个语法点，而是“不知道代码为什么要拆成这么多层”。读这个项目时请反复问三件事：
+
+| 问题 | 你要找的答案 |
+|------|-------------|
+| 这一层负责什么？ | 比如 handler 只处理 HTTP，biz 只处理业务规则，data 只处理数据库 |
+| 它依赖谁？ | 通过 import 和构造函数参数看依赖方向 |
+| 谁调用它？ | 通过 `rg "NewUserBiz"`、`rg "Register("` 之类命令反向查找 |
+
+配套文档：
+
+- [docs/README.md](docs/README.md)：完整文档清单和阅读顺序
+- [docs/api-reference.md](docs/api-reference.md)：HTTP API、错误码、幂等规则
+- [docs/configuration.md](docs/configuration.md)：YAML 配置、环境变量、超时和连接池参数
+- [docs/observability.md](docs/observability.md)：日志、指标、trace 和排障入口
+
+---
+
+## 第零部分：Go 初学者预备课（2-4 天）
+
+如果你刚开始学 Go，建议先完整读这一部分，再进入项目代码。这里会用本项目中的真实写法解释 Go 的核心概念。
+
+### 0.1 Go 程序的最小结构
+
+一个 Go 文件通常长这样：
+
+```go
+package main
+
+import "fmt"
+
+func main() {
+    fmt.Println("hello go")
+}
+```
+
+逐行解释：
+
+| 代码 | 含义 |
+|------|------|
+| `package main` | 当前文件属于 `main` 包。只有 `main` 包才能编译成可执行程序 |
+| `import "fmt"` | 导入标准库 `fmt`，用来格式化输出 |
+| `func main()` | 程序入口。运行二进制时，Go 会从这里开始执行 |
+| `fmt.Println(...)` | 调用 `fmt` 包里的公开函数 `Println` |
+
+本项目有三个入口：
+
+| 入口文件 | 启动的服务 |
+|----------|------------|
+| `cmd/api-gateway/main.go` | HTTP 网关，监听 `:8080` |
+| `cmd/user-service/main.go` | 用户 gRPC 服务，监听 `:9091`，管理端口 `:8081` |
+| `cmd/task-service/main.go` | 任务 gRPC 服务，监听 `:9092`，管理端口 `:8082` |
+
+Go 项目里常见的 `cmd/<name>/main.go` 约定表示：每个子目录都是一个可执行程序。
+
+### 0.2 Go Module、包名和导入路径
+
+本项目的 `go.mod` 开头是：
+
+```go
+module task-platform
+
+go 1.26.3
+```
+
+这说明：
+
+- 当前项目的模块名是 `task-platform`
+- 项目内部包的导入路径都以 `task-platform/...` 开头
+- 例如 `cmd/api-gateway/main.go` 里导入了 `task-platform/internal/gateway/server`
+
+Go 里有两个容易混淆的概念：
+
+| 概念 | 说明 |
+|------|------|
+| 目录 | 文件系统上的文件夹，比如 `internal/user/biz` |
+| 包 | Go 编译单位，一个目录通常对应一个包，比如 `package biz` |
+
+注意：
+
+- 同一个目录下的 `.go` 文件必须声明同一个包名，测试文件除外
+- 包名通常是目录名最后一段，比如 `internal/user/biz` 的包名是 `biz`
+- 导入时用完整路径，使用时用包名，例如 `biz.NewUserBiz(...)`
+
+### 0.3 `internal` 和 `pkg` 的区别
+
+本项目有两个重要目录：
+
+```text
+internal/
+pkg/
+```
+
+| 目录 | 用途 | 初学者理解 |
+|------|------|------------|
+| `internal/` | 项目内部业务代码，外部项目不能导入 | 放核心业务：用户、任务、网关 |
+| `pkg/` | 可复用工具包 | 放通用能力：错误码、JWT、日志、Redis、PostgreSQL、gRPC |
+
+Go 对 `internal` 有编译级限制：`internal` 目录外部的项目不能 import 它。这可以防止业务代码被别的项目误用。
+
+### 0.4 标识符大小写：Go 的可见性规则
+
+Go 没有 `public`、`private` 关键字。可见性只看首字母大小写：
+
+```go
+type UserBiz struct{}   // 大写开头：包外可访问
+type userRepo struct{}  // 小写开头：只能当前包内访问
+```
+
+本项目里经常看到这种组合：
+
+```go
+type UserRepository interface {
+    Create(ctx context.Context, user *User) error
+}
+
+type userRepo struct {
+    db *gorm.DB
+}
+
+func NewUserRepository(db *gorm.DB) UserRepository {
+    return &userRepo{db: db}
+}
+```
+
+设计意图：
+
+- `UserRepository` 是公开接口，其他包可以依赖它
+- `userRepo` 是私有实现，其他包不需要知道细节
+- `NewUserRepository` 是公开构造函数，返回接口类型
+
+这是 Go 后端项目非常常见的封装方式。
+
+### 0.5 变量、常量和零值
+
+Go 变量声明常见写法：
+
+```go
+var name string        // 声明变量，零值是 ""
+var age int = 18       // 声明并赋值
+enabled := true        // 短变量声明，只能在函数内部使用
+```
+
+Go 的零值很重要：
+
+| 类型 | 零值 |
+|------|------|
+| `int` / `int64` | `0` |
+| `float64` | `0` |
+| `bool` | `false` |
+| `string` | `""` |
+| 指针 | `nil` |
+| slice | `nil` |
+| map | `nil` |
+| interface | `nil` |
+| struct | 每个字段都是自己的零值 |
+
+本项目中很多判断都依赖零值，比如：
+
+```go
+if cfg.HTTPAddr == "" {
+    cfg.HTTPAddr = ":8080"
+}
+```
+
+常量声明：
+
+```go
+const (
+    userCacheTTL    = 5 * time.Minute
+    userCachePrefix = "user:"
+)
+```
+
+命名建议：
+
+- 包内私有常量用小写开头
+- 多个相关常量用 `const (...)` 分组
+- 不要把魔法数字散落在代码里
+
+### 0.6 基本类型、切片和 map
+
+本项目常用类型：
+
+| 类型 | 用途 |
+|------|------|
+| `string` | 用户名、邮箱、ID、错误消息 |
+| `int32` | proto 里的枚举值、状态、角色 |
+| `int64` | 时间戳、计数 |
+| `bool` | 是否启用、是否存在 |
+| `time.Time` | 创建时间、更新时间 |
+| `[]string` | 用户 ID 列表、弱密码列表 |
+| `map[string]bool` | 弱密码集合、快速判断是否存在 |
+
+slice 是 Go 里最常用的动态数组：
+
+```go
+ids := []string{"u1", "u2", "u3"}
+
+for _, id := range ids {
+    fmt.Println(id)
+}
+```
+
+`range` 返回两个值：
+
+```go
+for i, v := range ids {
+    fmt.Println(i, v)
+}
+```
+
+如果不需要下标，用 `_` 忽略：
+
+```go
+for _, id := range ids {
+    // 只用 id
+}
+```
+
+map 是键值表：
+
+```go
+weakPasswords := map[string]bool{
+    "password123": true,
+    "12345678":    true,
+}
+
+if weakPasswords[input] {
+    return errors.New("password is too weak")
+}
+```
+
+注意：
+
+- 从不存在的 key 读取，会得到 value 类型的零值
+- `nil` map 不能写入，写入前必须 `make`
+- slice 可以 `append`，map 需要通过 key 赋值
+
+### 0.7 struct、方法和指针接收者
+
+Go 没有 class，但有 struct：
+
+```go
+type UserBiz struct {
+    repo data.UserRepository
+    rdb  *redis.Client
+}
+```
+
+方法是绑定在类型上的函数：
+
+```go
+func (b *UserBiz) Register(ctx context.Context, username, email, password string) (*data.User, error) {
+    // ...
+}
+```
+
+`(b *UserBiz)` 叫接收者。它表示 `Register` 是 `*UserBiz` 的方法。
+
+为什么大多数方法接收者用指针 `*UserBiz`？
+
+| 原因 | 说明 |
+|------|------|
+| 避免拷贝 | struct 里可能有数据库连接、Redis 连接、logger 等字段，不应该复制 |
+| 可以修改状态 | 指针接收者可以修改 struct 字段 |
+| 保持一致 | 一个类型的方法通常统一用值接收者或指针接收者 |
+
+调用时不需要手动解引用：
+
+```go
+biz := NewUserBiz(repo, rdb, weakPasswords)
+user, err := biz.Register(ctx, username, email, password)
+```
+
+### 0.8 struct tag：数据库、JSON、配置都靠它
+
+Go struct 字段后面经常带一段反引号：
+
+```go
+type config struct {
+    ServiceName string `mapstructure:"service_name"`
+    HTTPAddr    string `mapstructure:"http_addr"`
+}
+```
+
+这叫 struct tag，用于告诉框架如何映射字段。
+
+常见 tag：
+
+| tag | 用途 |
+|-----|------|
+| `json:"username"` | JSON 序列化和反序列化 |
+| `gorm:"column:username"` | GORM 数据库字段映射 |
+| `mapstructure:"service_name"` | Viper 配置映射 |
+| `binding:"required"` | Gin 参数校验 |
+
+初学者常见问题：
+
+- tag 必须用反引号，不是单引号或双引号
+- 字段必须大写开头，否则 JSON/GORM 等包通常无法从包外反射访问它
+- 多个 tag 可以写在同一个反引号里，例如 `json:"email" binding:"required"`
+
+### 0.9 interface：Go 项目的解耦核心
+
+Go 的 interface 是行为集合：
+
+```go
+type UserRepository interface {
+    Create(ctx context.Context, user *User) error
+    FindByID(ctx context.Context, id string) (*User, error)
+}
+```
+
+任何类型只要实现了这些方法，就自动满足这个接口。不需要写 `implements`。
+
+```go
+type userRepo struct {
+    db *gorm.DB
+}
+
+func (r *userRepo) Create(ctx context.Context, user *User) error {
+    return r.db.WithContext(ctx).Create(user).Error
+}
+
+func (r *userRepo) FindByID(ctx context.Context, id string) (*User, error) {
+    // ...
+}
+```
+
+接口的价值：
+
+| 场景 | 好处 |
+|------|------|
+| 业务层依赖 Repository 接口 | 业务层不关心数据库怎么实现 |
+| 测试时写 mockRepo | 不需要真实 PostgreSQL 也能测业务逻辑 |
+| 替换实现 | 以后从 GORM 换成 SQLC，biz 层可以少改 |
+
+初学者记住一句话：**接口由使用方定义，接口越小越好。**
+
+### 0.10 error：Go 的显式错误处理
+
+Go 不使用异常作为主要错误处理方式。函数通常把错误作为最后一个返回值：
+
+```go
+user, err := repo.FindByID(ctx, userID)
+if err != nil {
+    return nil, err
+}
+```
+
+常见模式：
+
+```go
+result, err := doSomething()
+if err != nil {
+    return nil, fmt.Errorf("do something: %w", err)
+}
+return result, nil
+```
+
+`%w` 表示包装错误，后续可以用 `errors.Is` 或 `errors.As` 判断。
+
+本项目的统一错误类型在 `pkg/xerr/codes.go`：
+
+- 业务代码返回 `xerr.NewError(...)`
+- gRPC 层把它转成 gRPC status
+- gateway 再把 gRPC status 转成 HTTP 响应
+
+因此你会看到很多这样的代码：
+
+```go
+return nil, xerr.NewError(xerr.CodeInvalidArgument, "invalid email")
+```
+
+这比直接 `errors.New("invalid email")` 更适合后端服务，因为前端需要稳定的错误码。
+
+### 0.11 context.Context：请求生命周期的主线
+
+本项目几乎所有业务方法第一个参数都是 `ctx context.Context`：
+
+```go
+func (b *UserBiz) Register(ctx context.Context, username, email, password string) (*data.User, error)
+```
+
+`context.Context` 用来传递：
+
+| 内容 | 说明 |
+|------|------|
+| 取消信号 | 客户端断开、服务关闭时，中断下游操作 |
+| 超时时间 | 避免一个请求无限等待 |
+| 请求级值 | request_id、user_id、trace 信息 |
+
+常见写法：
+
+```go
+ctx := context.Background()
+
+ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+defer cancel()
+
+result, err := client.Call(ctx, req)
+```
+
+重要习惯：
+
+- 不要把 `context.Context` 存进 struct 字段
+- 函数需要上下文时，把 `ctx` 放在第一个参数
+- 创建了 `cancel` 就要 `defer cancel()`
+- 数据库、Redis、gRPC 调用都应该传递 `ctx`
+
+### 0.12 defer：资源清理和收尾逻辑
+
+`defer` 表示函数返回前执行：
+
+```go
+func run() error {
+    logger, err := xlog.New(...)
+    if err != nil {
+        return err
+    }
+    defer syncLogger(logger)
+
+    // ...
+    return nil
+}
+```
+
+常见用途：
+
+| 用途 | 示例 |
+|------|------|
+| 关闭资源 | `defer rows.Close()` |
+| 释放 cancel | `defer cancel()` |
+| 刷新日志 | `defer logger.Sync()` |
+| panic 恢复 | `defer func(){ recover() }()` |
+
+注意：
+
+- `defer` 在当前函数结束时执行，不是在当前代码块结束时执行
+- 循环里大量 `defer` 可能导致资源迟迟不释放
+- 多个 `defer` 按后进先出顺序执行
+
+### 0.13 goroutine、channel 和 select
+
+Go 的并发由 goroutine 和 channel 组成：
+
+```go
+go func() {
+    fmt.Println("run in background")
+}()
+```
+
+channel 是 goroutine 之间传递数据的管道：
+
+```go
+ch := make(chan string, 10)
+ch <- "hello"
+msg := <-ch
+```
+
+`select` 可以同时等待多个 channel：
+
+```go
+select {
+case msg := <-ch:
+    fmt.Println(msg)
+case <-ctx.Done():
+    return ctx.Err()
+}
+```
+
+本项目最值得精读的并发代码是 `internal/task/biz/log_writer.go`。它展示了：
+
+- 后台 worker 如何启动
+- 有界 channel 如何防止无限占内存
+- 定时 flush 如何用 `time.Ticker`
+- 服务关闭时如何等待 goroutine 退出
+- worker panic 后如何恢复
+
+### 0.14 泛型：本项目用得很少，但要认识
+
+Go 支持泛型，写法类似：
+
+```go
+func First[T any](items []T) (T, bool) {
+    var zero T
+    if len(items) == 0 {
+        return zero, false
+    }
+    return items[0], true
+}
+```
+
+本项目主要是业务后端，不需要大量泛型。初学阶段你只要能看懂 `[]T`、`map[K]V`、`any` 这些写法即可。
+
+### 0.15 Go 代码阅读方法
+
+读 Go 项目时，不要从所有文件随机看。推荐顺序：
+
+1. 找入口：`cmd/<service>/main.go`
+2. 看构造：`server.New...`
+3. 看路由或服务注册：HTTP 路由、gRPC 注册
+4. 看 handler/service：请求参数如何进入
+5. 看 biz：业务规则在哪里
+6. 看 data：数据库如何读写
+7. 看测试：预期行为是什么
+
+常用搜索命令：
+
+```bash
+rg "func New" internal/user
+rg "Register" internal/user internal/gateway
+rg "type UserRepository" -n
+rg "CodeInvalidArgument" -n
+```
+
+Go 初学者读代码时可以先忽略这些内容：
+
+- 复杂的 Prometheus 指标注册细节
+- OpenTelemetry 的具体 SDK 参数
+- gRPC 生成代码 `gen/go/...`
+- 前端 `web/` 目录
+
+先把“请求如何从入口走到数据库，再把结果返回给客户端”看懂，收益最大。
+
+### 0.16 本项目的第一条完整调用链
+
+建议初学者从注册接口开始：
+
+```text
+POST /api/v1/auth/register
+  ↓
+internal/gateway/handler/auth.go
+  ↓
+internal/gateway/rpc/client.go
+  ↓
+user-service gRPC
+  ↓
+internal/user/service/service.go
+  ↓
+internal/user/biz/user.go
+  ↓
+internal/user/data/repository.go
+  ↓
+PostgreSQL users 表
+```
+
+你需要在每一层回答：
+
+| 层 | 问题 |
+|----|------|
+| handler | HTTP JSON 参数如何绑定？错误如何返回？ |
+| rpc client | 如何连到 user-service？metadata 如何传？ |
+| service | proto request 如何转成 biz 参数？ |
+| biz | 用户名、邮箱、密码如何校验？密码如何哈希？ |
+| data | 用户如何插入数据库？唯一键冲突如何处理？ |
 
 ---
 
@@ -96,9 +668,10 @@ func run() error {    // ✅ 真正的逻辑在 run() 中，返回 error
 pkg/xerr    →  错误码定义（全项目的基础依赖）
 pkg/xjwt    →  JWT 工具
 pkg/xlog    →  日志封装
-pkg/xredis  →  Redis 客户端封装
+pkg/xredis  →  Redis 客户端封装（连接池、命令超时、指标）
 pkg/xpgsql  →  PostgreSQL 客户端封装
-pkg/xgrpc   →  gRPC 服务端/客户端通用拦截器
+pkg/xgrpc   →  gRPC 服务端/客户端通用拦截器（认证、指标、默认 deadline）
+pkg/xhttp   →  HTTP engine、健康检查、metrics、server timeout
 pkg/xcursor →  游标分页编码
 pkg/xratelimit →  令牌桶限流
 
@@ -155,21 +728,22 @@ server ─→ service ─→ biz ─→ data
 
 **从入口开始（按启动顺序读）：**
 
-1. **`cmd/api-gateway/main.go`**（146 行）
+1. **`cmd/api-gateway/main.go`**（约 156 行）
    - 重点理解：
      - `func run() error` 惯用模式
      - `signal.NotifyContext` 监听系统信号
      - `atomic.Bool` 就绪标志位
      - `http.Server.Shutdown` 优雅关闭
+     - `xhttp.NewServer` 设置 `ReadHeaderTimeout`、`ReadTimeout`、`WriteTimeout`、`IdleTimeout`
      - Viper 配置加载（YAML 文件 + `AutomaticEnv` 环境变量覆盖）
 
-2. **`cmd/user-service/main.go`**（178 行）
+2. **`cmd/user-service/main.go`**（约 187 行）
    - 额外重点：
      - gRPC 的 `GracefulStop()` vs `Stop()`
      - `select` 多路选择（等待信号或 goroutine 结果）
      - 同时启动 gRPC + Admin HTTP 两个服务器的模式
 
-3. **`pkg/xerr/codes.go`**（199 行）
+3. **`pkg/xerr/codes.go`**
    - 重点理解：
      - 自定义 `Error` 类型（`Code` + `Message`）
      - 实现 `GRPCStatus()` 方法使 `xerr.Error` 可以被 gRPC 框架识别
@@ -179,7 +753,9 @@ server ─→ service ─→ biz ─→ data
 4. **`pkg/xhttp/server.go`** 和 **`pkg/xgrpc/server.go`**
    - 健康检查 `/healthz`、`/readyz`
    - Prometheus `/metrics`
+   - HTTP server 默认超时：header 5s、read 10s、write 15s、idle 60s
    - gRPC reflection 和 health check 注册
+   - `pkg/xgrpc/timeout.go` 通过拦截器给内部 RPC 设置默认 deadline
 
 5. **`Makefile`**（80 行）
    - `make run/<service>` 的模式
@@ -265,12 +841,13 @@ func envOrDefault(key, defaultVal string) string {
 
 **Layer 2: biz（业务逻辑层）**
 
-3. **`internal/user/biz/user.go`**（249 行）
+3. **`internal/user/biz/user.go`**（约 260 行）
    - 正则校验（`regexp.MustCompile` 在包级别编译一次）
    - `bcrypt.GenerateFromPassword`（cost=10，生成哈希）
    - `bcrypt.CompareHashAndPassword`（验证密码）
    - `bcrypt.Cost`（检查是否需要重哈希）
    - **cache-aside 模式**：先查 Redis，miss 再查 DB，回填缓存
+   - `singleflight.Group` 合并同一个 userID 的并发缓存 miss，避免瞬时击穿数据库
    - `json.Marshal/Unmarshal` 序列化用户对象存 Redis
 
 **Layer 3: service（gRPC 服务层）**
@@ -287,6 +864,7 @@ func envOrDefault(key, defaultVal string) string {
    - gRPC 拦截器链：
      - `otelgrpc.NewServerHandler()` - 分布式追踪
      - `UnaryServerMetricsInterceptor()` - Prometheus 指标
+     - `UnaryServerTimeoutInterceptor()` - 没有入站 deadline 时补默认超时
      - `loggingInterceptor` - 请求日志
      - `authInterceptor` - 内部令牌校验
    - `metadata.FromIncomingContext` 提取 gRPC 元数据
@@ -369,6 +947,7 @@ func Auth(...) gin.HandlerFunc {
 - 理解 RBAC 权限模型在代码中的实现
 - 理解跨服务 gRPC 调用（task-service 调 user-service 校验用户）
 - 理解 Redis cache-aside 模式在项目中的应用
+- 理解 `singleflight` 如何合并并发缓存 miss
 
 ### 5.2 精读文件清单
 
@@ -387,6 +966,7 @@ func Auth(...) gin.HandlerFunc {
    - **GORM 事务**：`db.Transaction(func(tx *gorm.DB) error { ... })` 创建项目同时写入 owner 成员记录
    - **乐观锁**：更新时带 `version` 条件
    - **权限检查**：在每个操作前校验调用者角色
+   - **singleflight 防击穿**：同一个 projectID 的并发详情查询只让一个 goroutine 查 DB
    - **操作日志**：`logWriter.Enqueue(ctx, log)` 异步写入
 
 4. **`internal/task/service/service.go`**
@@ -476,14 +1056,15 @@ func isValid(from, to int32) bool {
 ### 7.1 学习目标
 
 - 理解 Go 的 goroutine + channel 异步处理模式
-- 理解 worker pool 的简化版（单 worker + 有界 channel）
+- 理解 worker pool 的简化版（可配置 worker + 有界 channel）
 - 理解 Prometheus 指标的定义和注册
 
 ### 7.2 精读文件清单
 
-1. **`internal/task/biz/log_writer.go`**（188 行）-**本项目的并发编程教科书**
+1. **`internal/task/biz/log_writer.go`**（约 209 行）-**本项目的并发编程教科书**
    - goroutine 生命周期管理
    - channel 容量设计（1024）
+   - `LOG_WRITER_WORKERS` 控制 worker 数（默认 1，最大 16）
    - `select` 多路复用（channel + ticker + done）
    - `atomic.Bool` 优雅关闭标志
    - `sync.WaitGroup` 等待 worker 退出
@@ -544,7 +1125,10 @@ func (w *LogWriter) Enqueue(ctx context.Context, log *OperationLog) {
 defer func() {
     if r := recover(); r != nil {
         logWriterWorkerPanic.Inc()
-        if !w.closed.Load() { go w.run() }  // 自动重启
+        if !w.closed.Load() {
+            w.wg.Add(1)
+            go w.run()
+        }  // 自动重启
     }
 }()
 
@@ -565,15 +1149,17 @@ metricsOnce.Do(func() { prometheus.MustRegister(counter) })
 
 ### 8.2 精读文件清单
 
-1. **`internal/gateway/middleware/ratelimit.go`**（131 行）
+1. **`internal/gateway/middleware/ratelimit.go`**（约 152 行）
    - 双层限流：IP 限流 + 用户级限流
    - 认证接口使用更严格阈值
    - Redis 错误时"fail-open"（放行不阻断）
+   - Prometheus 指标记录 allowed、rejected 和 Redis error
 
-2. **`internal/gateway/handler/idempotency.go`**（101 行）
+2. **`internal/gateway/handler/idempotency.go`**（约 104 行）
    - `SetNX` 原子的"抢锁"语义
    - `bodyCaptureWriter` 拦截响应 body 缓存
    - 失败请求清理 key（不放垃圾数据）
+   - 重复请求命中 `pending` 时返回 `409 Conflict` + `ABORTED`
 
 3. **`pkg/xratelimit/token_bucket.go`**（60 行）
    - Redis Lua 脚本做原子令牌桶
@@ -584,12 +1170,14 @@ metricsOnce.Do(func() { prometheus.MustRegister(counter) })
    - `accesslog.go` - Zap 结构化日志
    - `cors.go` - 跨域配置
    - `metrics.go` - HTTP 请求直方图 + 计数器
+   - `security.go` / `bodylimit.go` - 安全响应头和 1MB 请求体限制
 
 ### 8.3 核心 Go 知识点
 
 ```go
 // 1. Gin 中间件链是洋葱模型
-// Recovery → RequestID → Log → CORS → RateLimit(IP) → Auth → RateLimit(user) → Handler
+// Recovery → MaxBodySize → SecurityHeaders → RequestID → Trace → Metrics
+// → AccessLog → CORS → RateLimit(IP) → Auth → RateLimit(user) → Handler
 // 每个中间件通过 c.Next() 控制执行流
 
 // 2. Redis Lua 脚本（原子操作）
@@ -604,10 +1192,27 @@ script.Run(ctx, rdb, []string{key}, args...)
 // 3. 幂等的核心：SETNX
 ok, _ := rdb.SetNX(ctx, key, "pending", 24*time.Hour).Result()
 if !ok {  // key 已存在，是重复请求
+    // 如果还是 pending，返回 409/ABORTED；如果已有结果，返回缓存响应
     return cachedResult
 }
 // 首次请求，执行业务逻辑，写入结果
 ```
+
+`singleflight` 是本阶段新增的一个重要读优化：
+
+```go
+v, err, _ := b.sf.Do(userID, func() (any, error) {
+    if u := b.getCachedUser(ctx, userID); u != nil {
+        return u, nil
+    }
+    user, err := b.repo.FindByID(ctx, userID)
+    if err != nil { return nil, err }
+    b.cacheUser(ctx, user)
+    return user, nil
+})
+```
+
+它解决的是“同一个热点 key 过期时，很多 goroutine 同时查数据库”的问题。注意它不是缓存，只是把同 key 的并发 miss 合并成一次实际查询。
 
 ---
 
@@ -623,9 +1228,10 @@ if !ok {  // key 已存在，是重复请求
 
 1. **`pkg/xtrace/trace.go`** - OpenTelemetry 初始化
 2. **`pkg/xgrpc/metrics.go`** - gRPC 请求指标
-3. **`pkg/xpgsql/metrics.go`** - 数据库连接池指标
-4. **`pkg/xredis/metrics.go`** - Redis 缓存命中率指标
-5. **`internal/gateway/middleware/metrics.go`** - HTTP 请求指标
+3. **`pkg/xgrpc/timeout.go`** - gRPC client/server 默认 deadline
+4. **`pkg/xpgsql/metrics.go`** - 数据库连接池指标
+5. **`pkg/xredis/metrics.go`** - Redis 缓存命中率指标
+6. **`internal/gateway/middleware/metrics.go`** - HTTP 请求指标
 
 ### 9.3 核心知识点
 
@@ -826,11 +1432,12 @@ cmd/*/main.go
 
 ---
 
-## 附录：项目命令速查
+## 附录 A：项目命令速查
 
 ```bash
 # 启动基础设施
 make up
+make migrate
 
 # 启动服务（三个终端分别运行）
 make run/api-gateway
@@ -859,3 +1466,782 @@ make loadtest-baseline  # SLO 验证
 > 2. 跟着请求链路读 - 从 HTTP 入口一直追到数据库，画出调用链
 > 3. 答案在代码里 - 对照 `plan.md` 的规格描述，在代码中找到对应实现
 > 4. Go 的哲学是简单 - 如果一个实现让你觉得很复杂，很可能不是 Go 的风格
+
+---
+
+## 附录 B：Go 语法速查（结合本项目）
+
+这一节是给初学者查漏补缺用的。你不需要一次背下来，但遇到代码看不懂时可以回到这里对照。
+
+### B.1 函数声明和多返回值
+
+Go 函数格式：
+
+```go
+func 函数名(参数名 参数类型) (返回值类型, error) {
+    return 返回值, nil
+}
+```
+
+项目中典型写法：
+
+```go
+func HashPassword(plain string) (string, error) {
+    return HashPasswordWithCost(plain, bcryptCost)
+}
+```
+
+多返回值是 Go 的重要特性。常见组合：
+
+| 返回值 | 含义 |
+|--------|------|
+| `(T, error)` | 成功返回 T，失败返回 error |
+| `(*T, error)` | 成功返回对象指针，失败返回 error |
+| `(bool, error)` | 成功返回判断结果，失败返回 error |
+| `(cleanup func() error, err error)` | 返回清理函数和错误，常见于初始化代码 |
+
+初学者要注意：
+
+```go
+user, err := repo.FindByID(ctx, id)
+if err != nil {
+    return nil, err
+}
+```
+
+这不是“啰嗦”，而是 Go 故意让错误路径显式可见。
+
+### B.2 `:=` 和 `var` 的区别
+
+```go
+var err error       // 声明变量，可以在函数外或函数内使用
+user, err := ...    // 短声明，只能在函数内使用
+```
+
+`:=` 至少要声明一个新变量：
+
+```go
+user, err := repo.FindByID(ctx, id)  // user 和 err 都是新变量
+user, err = repo.FindByID(ctx, id)   // 重新赋值，不能用 :=
+```
+
+常见坑：
+
+```go
+var err error
+if user, err := repo.FindByID(ctx, id); err != nil {
+    return err
+}
+// 这里访问不到 user，因为 user 只在 if 语句内部有效
+```
+
+项目里大量使用这种 `if err := ...; err != nil` 写法：
+
+```go
+if err := v.ReadInConfig(); err != nil {
+    return config{}, fmt.Errorf("read config: %w", err)
+}
+```
+
+它适合只在当前判断里使用 `err` 的场景。
+
+### B.3 指针、值和 `nil`
+
+```go
+user := data.User{}      // 值
+userPtr := &user         // 指针，类型是 *data.User
+```
+
+函数参数是值时会拷贝：
+
+```go
+func UpdateUser(u data.User) {
+    u.Username = "new" // 只改了副本
+}
+```
+
+函数参数是指针时可以修改原对象：
+
+```go
+func UpdateUser(u *data.User) {
+    u.Username = "new" // 修改调用方对象
+}
+```
+
+本项目大多数实体都用指针传递：
+
+```go
+func (r *userRepo) Create(ctx context.Context, user *User) error
+```
+
+原因是：
+
+- 避免复制大结构体
+- GORM 需要通过指针写入自增字段、时间字段、ID 等
+- `nil` 可以表达“没有对象”
+
+### B.4 package import 的常见形式
+
+普通导入：
+
+```go
+import "context"
+```
+
+分组导入：
+
+```go
+import (
+    "context"
+    "fmt"
+
+    "go.uber.org/zap"
+
+    "task-platform/pkg/xerr"
+)
+```
+
+别名导入：
+
+```go
+import gwserver "task-platform/internal/gateway/server"
+```
+
+使用别名通常是为了避免包名冲突，或者让调用处更清楚。
+
+空白导入：
+
+```go
+import _ "github.com/lib/pq"
+```
+
+`_` 表示只执行这个包的初始化逻辑，不直接使用它的导出符号。本项目较少用这种方式，但你在数据库驱动、pprof、迁移工具里会经常见到。
+
+### B.5 数组、slice、map 的选择
+
+| 数据结构 | 是否常用 | 适合场景 |
+|----------|----------|----------|
+| 数组 `[3]string` | 较少 | 固定长度，编译期确定 |
+| slice `[]string` | 最常用 | 动态列表，比如用户 ID 列表 |
+| map `map[string]bool` | 很常用 | 快速通过 key 查找 |
+
+slice 初始化：
+
+```go
+users := make([]*data.User, 0, len(ids))
+```
+
+这表示：
+
+- 当前长度是 0
+- 预分配容量是 `len(ids)`
+- 后续 `append` 时更少扩容
+
+map 初始化：
+
+```go
+set := make(map[string]bool, len(weakPasswords))
+for _, pw := range weakPasswords {
+    set[pw] = true
+}
+```
+
+这就是本项目弱密码表的写法，适合做“是否存在”的判断。
+
+### B.6 时间处理
+
+Go 时间类型来自标准库 `time`：
+
+```go
+5 * time.Minute
+100 * time.Millisecond
+time.Now()
+time.Duration(seconds) * time.Second
+```
+
+项目中的典型用途：
+
+| 用途 | 示例 |
+|------|------|
+| 缓存 TTL | `userCacheTTL = 5 * time.Minute` |
+| 优雅关闭超时 | `context.WithTimeout(..., 10*time.Second)` |
+| HTTP server 超时 | `ReadHeaderTimeout: 5 * time.Second` |
+| gRPC 默认 deadline | `GRPC_CLIENT_TIMEOUT_SECONDS=2` |
+| 定时 flush | `time.NewTicker(100 * time.Millisecond)` |
+| JWT 过期时间 | token TTL 2 小时 |
+
+初学者注意：`time.Duration` 本质上是纳秒数，所以整数转 duration 时要乘单位：
+
+```go
+time.Duration(cfg.ShutdownTimeoutSeconds) * time.Second
+```
+
+不要写成：
+
+```go
+time.Duration(cfg.ShutdownTimeoutSeconds) // 这只是几个纳秒
+```
+
+### B.7 `for` 是 Go 唯一的循环关键字
+
+Go 没有 `while`，所有循环都用 `for`。
+
+普通循环：
+
+```go
+for i := 0; i < 10; i++ {
+    fmt.Println(i)
+}
+```
+
+类似 while：
+
+```go
+for running {
+    doWork()
+}
+```
+
+无限循环：
+
+```go
+for {
+    select {
+    case <-ctx.Done():
+        return
+    }
+}
+```
+
+遍历 slice：
+
+```go
+for _, id := range ids {
+    fmt.Println(id)
+}
+```
+
+遍历 map：
+
+```go
+for key, value := range m {
+    fmt.Println(key, value)
+}
+```
+
+### B.8 `switch` 和状态机
+
+本项目的任务状态流转适合用状态机理解：
+
+```go
+var validTransitions = map[int32][]int32{
+    Todo:  {Doing, Done, Cancelled},
+    Doing: {Done, Cancelled, Todo},
+}
+```
+
+如果用 `switch`，一般长这样：
+
+```go
+switch status {
+case TaskStatusTodo:
+    // todo
+case TaskStatusDoing:
+    // doing
+case TaskStatusDone:
+    // done
+default:
+    return xerr.NewError(xerr.CodeInvalidArgument, "invalid status")
+}
+```
+
+Go 的 `switch` 默认不会自动贯穿到下一个 case，不需要手写 `break`。
+
+### B.9 JSON 编码和解码
+
+项目里 Redis 缓存用户对象时会用 JSON：
+
+```go
+b, err := json.Marshal(user)
+if err != nil {
+    return
+}
+
+var user data.User
+if err := json.Unmarshal([]byte(raw), &user); err != nil {
+    return nil
+}
+```
+
+理解要点：
+
+- `Marshal`：Go struct → JSON bytes
+- `Unmarshal`：JSON bytes → Go struct
+- `Unmarshal` 第二个参数必须传指针，否则无法写入结果
+
+### B.10 日志字段
+
+本项目使用 Zap 结构化日志：
+
+```go
+logger.Info("http server listening", zap.String("addr", cfg.HTTPAddr))
+logger.Error("cleanup failed", zap.Error(err))
+```
+
+结构化日志的好处是字段可检索：
+
+```json
+{"level":"info","msg":"http server listening","addr":":8080"}
+```
+
+初学者不要只写：
+
+```go
+logger.Info("server started")
+```
+
+更好的写法是带关键字段：
+
+```go
+logger.Info("server started", zap.String("addr", addr), zap.String("service", serviceName))
+```
+
+---
+
+## 附录 C：注册接口逐层精读
+
+这一节用一个最典型的请求讲清楚项目的分层。你可以一边打开代码，一边按下面问题检查自己是否看懂。
+
+### C.1 HTTP 请求进入网关
+
+请求大致是：
+
+```http
+POST /api/v1/auth/register
+Content-Type: application/json
+Idempotency-Key: demo-register-001
+
+{
+  "username": "alice_001",
+  "email": "alice@example.com",
+  "password": "Passw0rd123"
+}
+```
+
+你要关注 `internal/gateway/handler/auth.go`：
+
+| 代码点 | 要理解的问题 |
+|--------|--------------|
+| request struct | JSON 字段如何映射到 Go struct |
+| `ShouldBindJSON` | 参数绑定失败时如何返回错误 |
+| idempotency | 重复请求为什么不会重复创建用户 |
+| RPC 调用 | handler 为什么不直接访问数据库 |
+| response envelope | 为什么所有 HTTP 响应都包一层 `{code,message,request_id,data}` |
+
+初学者需要建立的观念：**gateway 是边界层，不写核心业务。** 它负责 HTTP、认证、限流、幂等、参数绑定、错误转换，然后把请求交给后端服务。
+
+### C.2 gRPC client 发起内部调用
+
+关注 `internal/gateway/rpc/client.go`。
+
+内部服务之间不用 HTTP JSON，而是 gRPC。gRPC client 负责：
+
+- 连接 `user-service` 和 `task-service`
+- 设置超时
+- 注入内部认证 token
+- 传递 `x-request-id`、`x-user-id` 等 metadata
+- 接入 OpenTelemetry client trace
+
+你需要理解 metadata 类似 HTTP header，只不过它属于 gRPC 请求。
+
+### C.3 user-service 的 service 层
+
+关注 `internal/user/service/service.go`。
+
+service 层负责把 proto 请求转为 biz 参数：
+
+```text
+RegisterRequest
+  ↓
+username, email, password
+  ↓
+UserBiz.Register(...)
+  ↓
+RegisterResponse
+```
+
+这一层应该保持很薄。判断一个 service 层是否健康，可以看它是否只做三件事：
+
+- 取参数
+- 调 biz
+- 转 response
+
+如果你在 service 层看到大量业务规则，通常说明分层开始混乱。
+
+### C.4 biz 层做核心业务
+
+关注 `internal/user/biz/user.go` 的 `Register`。
+
+注册的业务规则包括：
+
+| 规则 | 代码位置 |
+|------|----------|
+| 用户名只能是字母、数字、下划线，长度 3-32 | `usernameRE.MatchString` |
+| 邮箱必须合法 | `mail.ParseAddress` |
+| 密码长度 8-64 | `utf8.RuneCountInString` |
+| 密码必须包含字母和数字 | `hasLetter`、`hasDigit` |
+| 不能使用弱密码 | `weakPasswords` map |
+| 密码不能明文入库 | `HashPassword` / bcrypt |
+| 邮箱统一小写 | `strings.ToLower` |
+| 创建用户交给 repository | `b.repo.Create(ctx, user)` |
+
+你应该特别注意：业务层不知道 HTTP，也不知道 gRPC。它只接收普通参数，返回普通 Go 对象和 error。这让业务层很好测试。
+
+### C.5 data 层写入数据库
+
+关注 `internal/user/data/repository.go`。
+
+data 层负责：
+
+- 组织 GORM 查询
+- 处理数据库错误
+- 把数据库错误转换成业务错误码
+- 隐藏表结构细节
+
+典型写法：
+
+```go
+if err := r.db.WithContext(ctx).Create(user).Error; err != nil {
+    return convertError(err)
+}
+return nil
+```
+
+`WithContext(ctx)` 很重要，因为它让数据库操作能响应请求取消和超时。
+
+### C.6 响应如何回到客户端
+
+返回路径和进入路径相反：
+
+```text
+PostgreSQL
+  ↑
+data.User
+  ↑
+biz.Register 返回 user
+  ↑
+service 转 RegisterResponse
+  ↑
+gRPC 返回 gateway
+  ↑
+handler 组装 HTTP JSON
+  ↑
+浏览器/Postman
+```
+
+如果中间任意一层返回 error，会进入错误转换链：
+
+```text
+xerr.Error
+  ↓
+gRPC status
+  ↓
+HTTP status + JSON envelope
+```
+
+这就是为什么项目要统一错误码。没有统一错误码，前端就只能解析字符串，系统会很难维护。
+
+---
+
+## 附录 D：调试、排错和读日志
+
+### D.1 服务启动失败怎么查
+
+启动失败先看错误属于哪类：
+
+| 错误现象 | 常见原因 | 检查方式 |
+|----------|----------|----------|
+| `read config` 失败 | 配置文件路径不对 | 查看 `APP_ENV`、`CONFIG_FILE` |
+| PostgreSQL 连接失败 | Docker 未启动、DSN 错 | `docker compose ps`，检查 `POSTGRES_DSN` |
+| Redis 连接失败 | Redis 未启动、地址错 | 检查 `REDIS_ADDR` |
+| JWT secret 太短 | `.env` 配置不满足安全要求 | 检查 `JWT_SECRET` |
+| internal token 太短或不一致 | 服务间认证失败 | 三个服务必须使用同一个 `INTERNAL_TOKEN` |
+| 端口被占用 | 本地已有进程监听 | `lsof -i :8080` 或换端口配置 |
+
+建议启动顺序：
+
+```bash
+make up
+make migrate
+make run/user-service
+make run/task-service
+make run/api-gateway
+```
+
+### D.2 接口返回 401 怎么查
+
+401 通常和认证有关：
+
+1. 是否调用了登录或注册拿到 token
+2. 请求头是否有 `Authorization: Bearer <token>`
+3. token 是否已经 logout，被写入 Redis 黑名单
+4. token 是否过期
+5. gateway 的 `JWT_SECRET` 是否和 user-service 签发时一致
+
+重点文件：
+
+- `pkg/xjwt/jwt.go`
+- `internal/gateway/middleware/auth.go`
+- `internal/gateway/handler/auth.go`
+
+### D.3 接口返回 403 怎么查
+
+403 通常是权限不足，不是未登录。
+
+项目权限主要在 task-service biz 层判断：
+
+- owner 可以管理项目、转让所有权、归档项目
+- admin 可以管理成员和任务，但不能转让 owner
+- member 只能做较有限的任务操作
+
+重点文件：
+
+- `internal/task/biz/project.go`
+- `internal/task/biz/task.go`
+- `internal/task/data/model.go` 中的 role 常量
+
+### D.4 接口返回 409 怎么查
+
+409 多半来自乐观锁冲突或幂等冲突。
+
+乐观锁场景：
+
+```text
+用户 A 读取 version=1
+用户 B 读取 version=1
+用户 A 更新成功，version 变成 2
+用户 B 仍然拿 version=1 更新，RowsAffected=0，返回冲突
+```
+
+解决方式：客户端重新读取最新数据，再提交更新。
+
+幂等冲突场景：
+
+- 同一个 `Idempotency-Key` 正在处理
+- 同一个 key 已经有缓存结果
+- 请求体不同但 key 相同
+
+重点文件：`internal/gateway/handler/idempotency.go`。
+
+### D.5 单元测试失败怎么查
+
+Go 测试命令：
+
+```bash
+go test ./internal/user/biz -v
+go test ./internal/task/biz -run TestCreateTask -v
+go test ./... -count=1
+```
+
+参数解释：
+
+| 参数 | 说明 |
+|------|------|
+| `-v` | 输出每个测试用例名称 |
+| `-run TestName` | 只运行匹配名称的测试 |
+| `-count=1` | 禁用测试缓存，强制重新执行 |
+| `./...` | 当前目录及所有子目录 |
+
+排查顺序：
+
+1. 看第一个失败测试，不要同时追多个失败
+2. 看 failure message，确认是输入错、期望错还是实现错
+3. 打开对应 `_test.go`，看测试构造了什么 mock
+4. 用 `t.Logf` 临时打印中间值
+5. 修复后跑目标包，再跑 `go test ./...`
+
+### D.6 集成测试失败怎么查
+
+集成测试依赖 Docker 和 testcontainers：
+
+```bash
+go test -tags=integration ./test/integration/ -v
+```
+
+常见问题：
+
+| 问题 | 处理 |
+|------|------|
+| Docker daemon 未启动 | 启动 Docker |
+| 拉镜像失败 | 检查网络或镜像源 |
+| 端口冲突 | testcontainers 通常随机端口，少见；检查本地 Docker 状态 |
+| 迁移失败 | 查看 migrations 目录和测试日志 |
+
+### D.7 用 `rg` 快速定位代码
+
+读项目时，`rg` 比手工翻文件高效很多：
+
+```bash
+rg "SetupIdempotency"
+rg "RateLimit"
+rg "TransferProjectOwnership"
+rg "validTransitions"
+rg "NewLogWriter"
+rg "UnaryServerMetricsInterceptor"
+```
+
+推荐技巧：
+
+- 查类型：`rg "type UserBiz"`
+- 查构造函数：`rg "NewUserBiz"`
+- 查接口实现：`rg "func \(.*\) Create" internal/user/data`
+- 查错误码：`rg "CodeAborted"`
+- 查路由：`rg "api/v1" internal/gateway`
+
+---
+
+## 附录 E：初学者练习清单
+
+这些练习按难度排序。不要只看代码，真正改一次、跑一次测试，学习效果会明显更好。
+
+### E.1 入门练习：只读不改
+
+- [ ] 画出 `cmd/api-gateway/main.go` 的启动流程图
+- [ ] 找出 `api-gateway` 注册路由的位置
+- [ ] 找出注册接口对应的 HTTP handler
+- [ ] 找出 `UserBiz.Register` 的全部校验规则
+- [ ] 找出 `UserRepository.Create` 如何处理数据库错误
+- [ ] 找出 JWT 在哪里签发、哪里校验、哪里加入黑名单
+- [ ] 找出 `request_id` 是在哪里生成的
+- [ ] 找出 `/healthz` 和 `/readyz` 的区别
+
+### E.2 基础改动：适合第一次动手
+
+- [ ] 把用户名最小长度从 3 改成 4，并补充对应测试
+- [ ] 给注册密码规则增加“不能包含空格”，并补充测试
+- [ ] 给登录失败日志增加 `account` 字段，但不要打印密码
+- [ ] 给某个 handler 增加更明确的参数错误消息
+- [ ] 给 `pkg/xcursor` 新增一个非法 cursor 的测试用例
+
+### E.3 业务练习：理解分层
+
+- [ ] 新增一个“获取用户公开资料”的 gRPC 方法，只返回 ID、username、status，不返回 email
+- [ ] 给项目增加一个 `description` 字段，完成 migration、model、repository、biz、service、handler、测试
+- [ ] 给任务增加优先级筛选，理解 cursor filter hash 为什么要变化
+- [ ] 给评论增加最小长度校验，补 biz 测试和 handler 测试
+- [ ] 给操作日志增加一种新的 action 类型，并在对应业务操作里写入日志
+
+### E.4 工程练习：理解后端质量
+
+- [ ] 给一个新的 HTTP endpoint 接入 `Idempotency-Key`
+- [ ] 给一个 Redis 缓存增加命中、未命中指标
+- [ ] 给一个数据库查询增加 context timeout
+- [ ] 调整 `GRPC_CLIENT_TIMEOUT_SECONDS`，观察内部 RPC 超时如何变成 `DEADLINE_EXCEEDED`
+- [ ] 调整 `LOG_WRITER_WORKERS`，验证操作日志 worker 数配置和上限
+- [ ] 给一个中间件补充单元测试，覆盖成功和失败路径
+
+### E.5 面试表达练习
+
+学完后，尝试不用看代码回答这些问题：
+
+- [ ] 一个注册请求从 HTTP 到数据库完整经历了哪些层？
+- [ ] 为什么 handler 不直接操作数据库？
+- [ ] 为什么 biz 依赖 repository 接口，而不是依赖具体 struct？
+- [ ] 为什么密码要用 bcrypt，而不是 MD5/SHA256？
+- [ ] JWT logout 为什么需要 Redis 黑名单？
+- [ ] 乐观锁比悲观锁适合这里的原因是什么？
+- [ ] cursor 分页为什么比 offset 分页更适合任务列表？
+- [ ] 操作日志异步写有什么收益和风险？本项目如何降级？
+- [ ] Redis 限流脚本为什么要用 Lua？
+- [ ] 中间件顺序错了会产生什么问题？
+
+---
+
+## 附录 F：从新手到能独立开发的建议路线
+
+### F.1 第一阶段：能跑、能查、能定位
+
+目标：不要求你能写复杂功能，但要能把服务跑起来，知道问题大概在哪一层。
+
+完成标准：
+
+- 能独立执行 `make up`、`make migrate`、三个 `make run/...`
+- 能用 Postman 或 curl 完成注册、登录、创建项目、创建任务
+- 能根据 HTTP 状态码判断是认证、权限、参数还是并发冲突问题
+- 能用 `rg` 找到某个接口的 handler、biz、repository
+
+### F.2 第二阶段：能改小需求
+
+目标：能改字段、校验、错误消息、简单查询条件。
+
+完成标准：
+
+- 能修改一个 request struct 并理解 JSON tag
+- 能修改 biz 校验并补单元测试
+- 能修改 repository 查询并知道是否需要 migration
+- 能跑目标包测试和全量测试
+
+### F.3 第三阶段：能做完整功能
+
+目标：能从接口到数据库完整实现一个小功能。
+
+完成标准：
+
+- 能改 proto 并重新生成代码
+- 能写 migration 和 GORM model
+- 能设计 repository 接口
+- 能在 biz 层实现业务规则
+- 能在 service 层转换 proto
+- 能在 gateway handler 暴露 HTTP endpoint
+- 能补单元测试、handler 测试和必要的集成测试
+
+### F.4 第四阶段：能考虑工程质量
+
+目标：不仅让功能能跑，还能解释为什么这样设计。
+
+完成标准：
+
+- 能判断是否需要缓存，以及缓存失效策略是什么
+- 能判断写接口是否需要幂等
+- 能判断接口是否需要限流
+- 能为关键路径补 metrics 和日志字段
+- 能解释错误码、HTTP 状态码、gRPC status 的映射
+- 能识别 goroutine 泄漏、事务边界、并发冲突等风险
+
+---
+
+## 附录 G：术语对照表
+
+| 术语 | 初学者解释 | 项目例子 |
+|------|------------|----------|
+| Handler | HTTP 请求处理函数 | `internal/gateway/handler` |
+| Middleware | 请求进入 handler 前后的通用逻辑 | auth、ratelimit、accesslog |
+| Service | gRPC 方法实现层 | `internal/user/service` |
+| Biz / Domain | 业务规则层 | 注册校验、权限校验、状态机 |
+| Repository | 数据访问抽象 | `UserRepository`、`TaskRepository` |
+| Model | 数据库表对应的 Go struct | `data.User`、`data.Task` |
+| DTO | 网络传输对象 | HTTP request struct、proto message |
+| Entity | 业务实体 | 用户、项目、任务、评论 |
+| Migration | 数据库结构变更脚本 | `migrations/*/*.sql` |
+| Middleware chain | 多个中间件按顺序执行 | Recovery → MaxBodySize → RequestID → Auth → Handler |
+| Singleflight | 合并同 key 并发调用 | 防止热点缓存 miss 同时打到数据库 |
+| Interceptor | gRPC 的中间件 | logging、metrics、auth |
+| Metadata | gRPC 请求头 | `x-user-id`、`x-internal-token` |
+| Context | 请求生命周期和元数据载体 | `context.Context` |
+| Graceful shutdown | 优雅关闭 | 停止接收新请求，等待已有请求完成 |
+| Cache-aside | 旁路缓存模式 | 先查 Redis，miss 再查 DB，回填缓存 |
+| Idempotency | 幂等 | 同一个 key 的重复写请求只执行一次 |
+| Optimistic lock | 乐观锁 | `WHERE version = ?` |
+| Cursor pagination | 游标分页 | 任务列表按 `created_at,id` 翻页 |
+| Trace | 分布式调用链 | OpenTelemetry span |
+| Metric | 指标 | Prometheus counter/histogram |
+| Structured log | 结构化日志 | Zap JSON 日志 |
+
+---
+
+> **最终学习建议：**
+> 1. 初学 Go 不要追求一次看懂所有抽象，先把一条请求链路跑通、画出来、讲清楚。
+> 2. 每个新概念都回到项目里找例子：接口看 repository，context 看 handler/biz/data，goroutine 看 log writer。
+> 3. 每做一个改动都跑测试。Go 项目的学习闭环是“读代码 → 改代码 → 跑测试 → 解释行为”。
+> 4. 当你能独立完成“加字段、加接口、加测试、讲清楚分层原因”，就已经越过 Go 后端入门门槛。
+

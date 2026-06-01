@@ -15,6 +15,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
+	"golang.org/x/sync/singleflight"
 
 	"task-platform/internal/user/data"
 	"task-platform/pkg/xerr"
@@ -38,8 +39,6 @@ var (
 		}
 		return v
 	}()
-
-
 )
 
 var (
@@ -53,6 +52,7 @@ type UserBiz struct {
 	rdb           *redis.Client
 	weakPasswords map[string]bool
 	logger        *zap.Logger
+	sf            singleflight.Group
 }
 
 func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []string) *UserBiz {
@@ -168,15 +168,27 @@ func (b *UserBiz) GetUser(ctx context.Context, userID string) (*data.User, error
 		}
 	}
 
-	user, err := b.repo.FindByID(ctx, userID)
+	v, err, _ := b.sf.Do(userID, func() (any, error) {
+		if b.rdb != nil {
+			if u := b.getCachedUser(ctx, userID); u != nil {
+				return u, nil
+			}
+		}
+
+		user, err := b.repo.FindByID(ctx, userID)
+		if err != nil {
+			return nil, err
+		}
+
+		if b.rdb != nil {
+			b.cacheUser(ctx, user)
+		}
+		return user, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	if b.rdb != nil {
-		b.cacheUser(ctx, user)
-	}
-	return user, nil
+	return v.(*data.User), nil
 }
 
 func (b *UserBiz) BatchGetUsers(ctx context.Context, ids []string) ([]*data.User, error) {

@@ -2,4 +2,8 @@ service_name: api-gateway
 env: local
 http_addr: ":8080"
 shutdown_timeout_seconds: 10
+read_header_timeout_seconds: 5
+read_timeout_seconds: 10
+write_timeout_seconds: 15
+idle_timeout_seconds: 60
 

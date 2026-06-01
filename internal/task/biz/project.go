@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 	"gorm.io/gorm"
 
 	"task-platform/internal/task/data"
@@ -31,6 +32,7 @@ type ProjectBiz struct {
 	userClient  UserServiceClient
 	logWriter   *LogWriter
 	rdb         *redis.Client
+	sf          singleflight.Group
 }
 
 func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter, rdb *redis.Client) *ProjectBiz {
@@ -99,16 +101,27 @@ func (b *ProjectBiz) GetProject(ctx context.Context, projectID, callerID string)
 		}
 	}
 
-	project, err := b.projectRepo.FindByID(ctx, projectID)
+	v, err, _ := b.sf.Do(projectID, func() (any, error) {
+		if b.rdb != nil {
+			if p := b.getCachedProject(ctx, projectID); p != nil {
+				return p, nil
+			}
+		}
+
+		project, err := b.projectRepo.FindByID(ctx, projectID)
+		if err != nil {
+			return nil, err
+		}
+
+		if b.rdb != nil {
+			b.cacheProject(ctx, project)
+		}
+		return project, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	if b.rdb != nil {
-		b.cacheProject(ctx, project)
-	}
-
-	return project, nil
+	return v.(*data.Project), nil
 }
 
 func (b *ProjectBiz) UpdateProject(ctx context.Context, projectID, callerID, name, description string, version int64) (*data.Project, error) {

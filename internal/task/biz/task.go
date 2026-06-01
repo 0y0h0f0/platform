@@ -69,13 +69,13 @@ func (b *TaskBiz) CreateTask(ctx context.Context, projectID, callerID, title, co
 	_ = member
 
 	task := &data.Task{
-		ProjectID:  projectID,
-		Title:      title,
-		Content:    content,
-		CreatorID:  callerID,
-		Status:     data.TaskStatusTodo,
-		Priority:   data.PriorityNormal,
-		Extra:      "{}",
+		ProjectID: projectID,
+		Title:     title,
+		Content:   content,
+		CreatorID: callerID,
+		Status:    data.TaskStatusTodo,
+		Priority:  data.PriorityNormal,
+		Extra:     "{}",
 	}
 	if err := b.taskRepo.Create(ctx, task); err != nil {
 		return nil, err

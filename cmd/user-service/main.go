@@ -24,12 +24,16 @@ import (
 )
 
 type config struct {
-	ServiceName            string `mapstructure:"service_name"`
-	Env                    string `mapstructure:"env"`
-	GRPCAddr               string `mapstructure:"grpc_addr"`
-	AdminAddr              string `mapstructure:"admin_addr"`
-	ReflectionEnabled      bool   `mapstructure:"reflection_enabled"`
-	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
+	ServiceName              string `mapstructure:"service_name"`
+	Env                      string `mapstructure:"env"`
+	GRPCAddr                 string `mapstructure:"grpc_addr"`
+	AdminAddr                string `mapstructure:"admin_addr"`
+	ReflectionEnabled        bool   `mapstructure:"reflection_enabled"`
+	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
+	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"`
+	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
+	IdleTimeoutSeconds       int    `mapstructure:"idle_timeout_seconds"`
 }
 
 func main() {
@@ -74,10 +78,12 @@ func run() error {
 	}
 
 	ready := &atomic.Bool{}
-	adminServer := &http.Server{
-		Addr:    cfg.AdminAddr,
-		Handler: xhttp.NewEngine(cfg.ServiceName, ready),
-	}
+	adminServer := xhttp.NewServer(cfg.AdminAddr, xhttp.NewEngine(cfg.ServiceName, ready), xhttp.ServerTimeoutsFromSeconds(
+		cfg.ReadHeaderTimeoutSeconds,
+		cfg.ReadTimeoutSeconds,
+		cfg.WriteTimeoutSeconds,
+		cfg.IdleTimeoutSeconds,
+	))
 
 	errCh := make(chan error, 2)
 	go func() {
@@ -143,6 +149,10 @@ func loadConfig(service string) (config, error) {
 	v.SetDefault("admin_addr", ":8081")
 	v.SetDefault("reflection_enabled", true)
 	v.SetDefault("shutdown_timeout_seconds", 10)
+	v.SetDefault("read_header_timeout_seconds", 5)
+	v.SetDefault("read_timeout_seconds", 10)
+	v.SetDefault("write_timeout_seconds", 15)
+	v.SetDefault("idle_timeout_seconds", 60)
 
 	if err := v.ReadInConfig(); err != nil {
 		return config{}, fmt.Errorf("read config: %w", err)

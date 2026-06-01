@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
@@ -13,10 +16,10 @@ import (
 )
 
 type mockRepo struct {
-	createFn            func(ctx context.Context, user *data.User) error
-	findByAccountFn     func(ctx context.Context, account string) (*data.User, error)
-	findByIDFn          func(ctx context.Context, id string) (*data.User, error)
-	batchFindFn         func(ctx context.Context, ids []string) ([]*data.User, error)
+	createFn             func(ctx context.Context, user *data.User) error
+	findByAccountFn      func(ctx context.Context, account string) (*data.User, error)
+	findByIDFn           func(ctx context.Context, id string) (*data.User, error)
+	batchFindFn          func(ctx context.Context, ids []string) ([]*data.User, error)
 	updatePasswordHashFn func(ctx context.Context, userID, hash string) error
 }
 
@@ -214,6 +217,48 @@ func TestGetUser_Success(t *testing.T) {
 	}
 	if user.Username != "testuser" {
 		t.Errorf("Username = %s", user.Username)
+	}
+}
+
+func TestGetUser_CoalescesConcurrentMisses(t *testing.T) {
+	var calls atomic.Int32
+	var once sync.Once
+	started := make(chan struct{})
+	release := make(chan struct{})
+	repo := &mockRepo{
+		findByIDFn: func(ctx context.Context, id string) (*data.User, error) {
+			calls.Add(1)
+			once.Do(func() { close(started) })
+			<-release
+			return &data.User{ID: id, Username: "testuser"}, nil
+		},
+	}
+	b := biz.NewUserBiz(repo, nil, nil)
+
+	const workers = 20
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			user, err := b.GetUser(context.Background(), "user-1")
+			if err != nil {
+				t.Errorf("GetUser: %v", err)
+				return
+			}
+			if user.ID != "user-1" {
+				t.Errorf("ID = %s, want user-1", user.ID)
+			}
+		}()
+	}
+
+	<-started
+	time.Sleep(20 * time.Millisecond)
+	close(release)
+	wg.Wait()
+
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("FindByID calls = %d, want 1", got)
 	}
 }
 

@@ -16,15 +16,20 @@ import (
 	"go.uber.org/zap"
 
 	gwserver "task-platform/internal/gateway/server"
+	"task-platform/pkg/xhttp"
 	"task-platform/pkg/xlog"
 	"task-platform/pkg/xtrace"
 )
 
 type config struct {
-	ServiceName            string `mapstructure:"service_name"`
-	Env                    string `mapstructure:"env"`
-	HTTPAddr               string `mapstructure:"http_addr"`
-	ShutdownTimeoutSeconds int    `mapstructure:"shutdown_timeout_seconds"`
+	ServiceName              string `mapstructure:"service_name"`
+	Env                      string `mapstructure:"env"`
+	HTTPAddr                 string `mapstructure:"http_addr"`
+	ShutdownTimeoutSeconds   int    `mapstructure:"shutdown_timeout_seconds"`
+	ReadHeaderTimeoutSeconds int    `mapstructure:"read_header_timeout_seconds"`
+	ReadTimeoutSeconds       int    `mapstructure:"read_timeout_seconds"`
+	WriteTimeoutSeconds      int    `mapstructure:"write_timeout_seconds"`
+	IdleTimeoutSeconds       int    `mapstructure:"idle_timeout_seconds"`
 }
 
 func main() {
@@ -64,10 +69,12 @@ func run() error {
 		}
 	}()
 
-	server := &http.Server{
-		Addr:    cfg.HTTPAddr,
-		Handler: engine,
-	}
+	server := xhttp.NewServer(cfg.HTTPAddr, engine, xhttp.ServerTimeoutsFromSeconds(
+		cfg.ReadHeaderTimeoutSeconds,
+		cfg.ReadTimeoutSeconds,
+		cfg.WriteTimeoutSeconds,
+		cfg.IdleTimeoutSeconds,
+	))
 
 	errCh := make(chan error, 1)
 	go func() {
@@ -111,6 +118,10 @@ func loadConfig(service string) (config, error) {
 	v.SetDefault("env", defaultEnv())
 	v.SetDefault("http_addr", ":8080")
 	v.SetDefault("shutdown_timeout_seconds", 10)
+	v.SetDefault("read_header_timeout_seconds", 5)
+	v.SetDefault("read_timeout_seconds", 10)
+	v.SetDefault("write_timeout_seconds", 15)
+	v.SetDefault("idle_timeout_seconds", 60)
 
 	if err := v.ReadInConfig(); err != nil {
 		return config{}, fmt.Errorf("read config: %w", err)

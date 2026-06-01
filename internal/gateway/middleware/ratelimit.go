@@ -22,12 +22,28 @@ var (
 			Help: "Total rate limiter Redis errors that caused fail-open.",
 		},
 	)
+	rateLimitAllowed = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gateway_rate_limit_allowed_total",
+			Help: "Total requests allowed by the gateway rate limiter.",
+		},
+		[]string{"scope"},
+	)
+	rateLimitRejected = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "gateway_rate_limit_rejected_total",
+			Help: "Total requests rejected by the gateway rate limiter.",
+		},
+		[]string{"scope"},
+	)
 	rateLimiterMetricsOnce sync.Once
 )
 
 func registerRateLimiterMetrics() {
 	rateLimiterMetricsOnce.Do(func() {
 		prometheus.MustRegister(rateLimiterErrors)
+		prometheus.MustRegister(rateLimitAllowed)
+		prometheus.MustRegister(rateLimitRejected)
 	})
 }
 
@@ -59,6 +75,7 @@ var publicPaths = map[string]bool{
 }
 
 func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
+	registerRateLimiterMetrics()
 	tb := xratelimit.New(rdb)
 	return func(c *gin.Context) {
 		if rdb == nil {
@@ -69,21 +86,23 @@ func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
 		ip := c.ClientIP()
 		rate := ipRate
 		burst := ipBurst
+		scope := "ip"
 		key := "ratelimit:ip:" + ip
 		if publicPaths[strings.TrimSuffix(c.Request.URL.Path, "/")] {
 			rate = authRate
 			burst = authBurst
+			scope = "auth"
 			key = "ratelimit:ip:auth:" + ip
 		}
 
 		allowed, err := tb.Allow(c.Request.Context(), key, rate, burst)
 		if err != nil {
-			registerRateLimiterMetrics()
 			rateLimiterErrors.Inc()
 			c.Next()
 			return
 		}
 		if !allowed {
+			rateLimitRejected.WithLabelValues(scope).Inc()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":       "RESOURCE_EXHAUSTED",
 				"message":    "rate limit exceeded",
@@ -91,11 +110,13 @@ func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
 			})
 			return
 		}
+		rateLimitAllowed.WithLabelValues(scope).Inc()
 		c.Next()
 	}
 }
 
 func RateLimitByUser(rdb *redis.Client) gin.HandlerFunc {
+	registerRateLimiterMetrics()
 	tb := xratelimit.New(rdb)
 	return func(c *gin.Context) {
 		if rdb == nil {
@@ -112,12 +133,12 @@ func RateLimitByUser(rdb *redis.Client) gin.HandlerFunc {
 		key := "ratelimit:user:" + userID
 		allowed, err := tb.Allow(c.Request.Context(), key, userRate, userBurst)
 		if err != nil {
-			registerRateLimiterMetrics()
 			rateLimiterErrors.Inc()
 			c.Next()
 			return
 		}
 		if !allowed {
+			rateLimitRejected.WithLabelValues("user").Inc()
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":       "RESOURCE_EXHAUSTED",
 				"message":    "rate limit exceeded",
@@ -125,6 +146,7 @@ func RateLimitByUser(rdb *redis.Client) gin.HandlerFunc {
 			})
 			return
 		}
+		rateLimitAllowed.WithLabelValues("user").Inc()
 		c.Next()
 	}
 }

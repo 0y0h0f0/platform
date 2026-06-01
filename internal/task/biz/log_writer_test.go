@@ -106,6 +106,25 @@ func TestLogWriter_Shutdown(t *testing.T) {
 	}
 }
 
+func TestLogWriter_ConfigurableWorkers(t *testing.T) {
+	t.Setenv("LOG_WRITER_WORKERS", "3")
+	repo := &noopOpLogRepo{}
+	w := NewLogWriter(repo, zap.NewNop())
+
+	for i := 0; i < 200; i++ {
+		w.Enqueue(context.Background(), &data.OperationLog{
+			OperatorID: "user-1",
+			Action:     "task.create",
+		})
+	}
+
+	w.Shutdown()
+
+	if count := repo.count(); count != 200 {
+		t.Errorf("got %d logs, want 200", count)
+	}
+}
+
 func TestLogWriter_ChannelFullDegrades(t *testing.T) {
 	repo := &noopOpLogRepo{}
 	w := NewLogWriter(repo, zap.NewNop())

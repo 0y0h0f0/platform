@@ -43,7 +43,7 @@ A campus-recruitment backend scaffold — team task collaboration platform built
                         Redis
 ```
 
-**Middleware chain:** `Recovery → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
+**Middleware chain:** `Recovery → MaxBodySize(1MB) → SecurityHeaders → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
 
 **Service layer:** `handler(HTTP) → service(gRPC impl) → biz(domain) → data(repository/GORM)`
 
@@ -72,14 +72,15 @@ A campus-recruitment backend scaffold — team task collaboration platform built
 ### Comments & Operation Logs
 - Create / delete / list task comments
 - Operation logs for projects and tasks
-- Async log writer: buffered channel (capacity 1024), batch write (size 64, flush 100ms), graceful degradation on channel full
+- Async log writer: buffered channel (capacity 1024), configurable workers (default 1, max 16), batch write (size 64, flush 100ms), graceful degradation on channel full
 
 ### Engineering
 - **Unified error codes:** 12 error codes mapped from gRPC status to HTTP responses via `{ code, message, request_id, data? }` envelope
 - **Structured logging:** Zap JSON with `request_id` and `method`/`latency` fields; gRPC unary logging interceptors on both services
-- **Redis caching:** Cache-aside for user info and project details with write invalidation (TTL 5 min)
+- **Redis caching:** Cache-aside for user info and project details with write invalidation (TTL 5 min) plus singleflight miss coalescing
 - **Rate limiting:** Redis token bucket (Lua script), separate keys for auth (5/s, burst 10) and regular paths (60/s, burst 100), plus per-user rate limiting (100/s, burst 200)
-- **Idempotency:** `Idempotency-Key` header on all write endpoints, Redis `SETNX` with 24h TTL, key freed on error for retry
+- **Idempotency:** `Idempotency-Key` header on all write endpoints, Redis `SETNX` with 24h TTL, key freed on error for retry, pending duplicates return 409/`ABORTED`
+- **Timeouts:** HTTP read/write/idle timeouts and internal gRPC default deadlines are configurable
 - **Multi-env config:** YAML configs for local/dev/docker with Viper + env var override
 - **Soft delete:** `users`, `projects`, `tasks` use GORM `DeletedAt`; `comments` and `members` are physically deleted
 - **Integration tests:** 70+ tests against real PostgreSQL 16 and Redis 7 via testcontainers-go
@@ -184,6 +185,9 @@ All endpoints return the envelope: `{ "code": "OK", "message": "...", "request_i
 
 ## Documentation
 
+- **[Documentation Index](docs/README.md)** — Full Chinese documentation map for architecture, API, configuration, database, development, testing, deployment, observability, and frontend.
+- **[Go Study Guide](study.md)** — Go beginner-oriented learning route through this codebase.
+- **[Project Introduction](docs/project-introduction.md)** — 项目介绍 (Chinese): 完整的项目定位、架构设计、功能清单、技术栈与亮点总结。
 - **[Postman Collection](docs/postman/task-platform.postman_collection.json)** — Import into Postman. Auto-sets token on Register/Login; all endpoints with example bodies and auto-synced version variables.
 - **[Interview Script](docs/interview-script.md)** — 面试讲解稿 (Chinese): architecture rationale, key highlights, challenges & solutions, common follow-up questions.
 
@@ -194,7 +198,7 @@ All endpoints return the envelope: `{ "code": "OK", "message": "...", "request_i
 
 ### Idempotency
 
-All write endpoints (`POST`, `PUT`, `DELETE`) accept `Idempotency-Key` header. Duplicate requests with the same key within 24h return the cached response (200 OK) instead of re-executing. Keys are freed on error so clients can retry.
+All write endpoints (`POST`, `PUT`, `DELETE`) accept `Idempotency-Key` header. Duplicate requests with the same key within 24h return the cached response (200 OK) after the first request finishes; duplicates that arrive while the first request is still `pending` return 409/`ABORTED`. Keys are freed on error so clients can retry.
 
 ## Configuration
 
@@ -217,6 +221,10 @@ Each service has its own YAML file. Config is loaded via Viper with env var over
 | `POSTGRES_DSN` | user, task | PostgreSQL connection string |
 | `REDIS_ADDR` | all | Redis address (`host:port`) |
 | `REDIS_PASSWORD` | all | Redis password (optional) |
+| `REDIS_POOL_SIZE` | all | Redis connection pool size (default 100) |
+| `GRPC_CLIENT_TIMEOUT_SECONDS` | gateway, task | Default internal gRPC client deadline (default 2s) |
+| `GRPC_SERVER_TIMEOUT_SECONDS` | user, task | Default gRPC server handler deadline (default 3s) |
+| `LOG_WRITER_WORKERS` | task | Async operation log worker count (default 1, max 16) |
 
 Default ports: API gateway `:8080`, user-service gRPC `:9091`, task-service gRPC `:9092`, PostgreSQL `:5433`, Redis `:6380`.
 
@@ -226,6 +234,7 @@ Default ports: API gateway `:8080`, user-service gRPC `:9091`, task-service gRPC
 - **Shared Redis:** One Redis instance for caching, rate limiting, and idempotency
 - **Gateway-only JWT verification:** Internal services trust injected `x-user-id`/`x-username` metadata headers; they never hold the JWT secret
 - **Internal RPC auth:** `x-internal-token` static shared secret validated by server interceptor on every RPC
+- **Bounded request lifetimes:** HTTP servers have explicit read/write/idle timeouts; internal gRPC calls get default deadlines
 - **Optimistic locking:** `projects.version` and `tasks.version` prevent concurrent write conflicts
 - **Soft deletes with partial unique indexes:** `users` and `projects` use GORM soft delete with `WHERE deleted_at IS NULL` partial unique indexes
 - **Owner consistency:** `projects.owner_id` is the source of truth; `project_members` keeps a redundant `role=owner` row, updated atomically in `TransferOwnership`
@@ -249,9 +258,11 @@ Go 1.26+ · Gin · gRPC + protobuf (buf) · PostgreSQL 16 · Redis 7 · GORM · 
 │   ├── user/               # User service (biz, data, service, server)
 │   └── task/               # Task service (biz, data, service, server)
 ├── migrations/             # SQL migrations per schema
-├── pkg/                    # Shared packages (xerr, xredis, xjwt, xlog, xratelimit, etc.)
+├── pkg/                    # Shared packages (xerr, xgrpc, xhttp, xjwt, xlog, xpgsql, xredis, xratelimit, etc.)
 ├── scripts/                # Build/test/migration scripts
 ├── test/integration/       # Integration tests (real PG + Redis via testcontainers)
 ├── deploy/                 # Docker Compose, Prometheus, Grafana configs
+├── docs/                   # Project documentation
+├── web/                    # React frontend
 └── Makefile                # proto, test, lint, coverage, migrate, up/down
 ```

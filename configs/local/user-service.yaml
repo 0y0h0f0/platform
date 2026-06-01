@@ -4,4 +4,8 @@ grpc_addr: ":9091"
 admin_addr: ":8081"
 reflection_enabled: true
 shutdown_timeout_seconds: 10
+read_header_timeout_seconds: 5
+read_timeout_seconds: 10
+write_timeout_seconds: 15
+idle_timeout_seconds: 60
 

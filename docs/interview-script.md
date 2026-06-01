@@ -53,13 +53,13 @@ client → api-gateway (Gin, HTTP) ──gRPC──→ user-service → PostgreS
 
 ### 3.3 异步操作日志
 
-- 容量 1024 的 channel，单 worker，批量写入（batch size 64，flush 间隔 100ms）。
+- 容量 1024 的 channel，worker 数通过 `LOG_WRITER_WORKERS` 配置（默认 1，最大 16），批量写入（batch size 64，flush 间隔 100ms）。
 - **优雅降级：** channel 满时同步写入 + warn 日志 + Prometheus 计数器递增。
 - **优雅关闭：** 收到 SIGTERM 后 flush 剩余日志，最多等 3 秒后放弃。
 
 ### 3.4 可观测性
 
-- **Metrics：** OpenTelemetry + Prometheus。每个服务暴露 `/metrics`。关键指标包括 HTTP 请求耗时（按 path/method）、gRPC 调用耗时、DB 连接池状态、Redis 命中率、Rate Limiter 拒绝数。
+- **Metrics：** OpenTelemetry + Prometheus。每个服务暴露 `/metrics`。关键指标包括 HTTP 请求耗时（按 path/method）、gRPC 调用耗时、DB 连接池状态、Redis 命中率、Rate Limiter 放行/拒绝数和操作日志降级/失败计数。
 - **Tracing：** OpenTelemetry + Jaeger，每个请求注入 trace_id，gRPC 调用自动传播 context。
 - **Logging：** Zap JSON 格式，每条日志带 `request_id`，与 trace 关联。
 - **Grafana Dashboard：** 19 个面板覆盖 HTTP/gRPC/DB/Redis/RateLimiter。
@@ -67,7 +67,8 @@ client → api-gateway (Gin, HTTP) ──gRPC──→ user-service → PostgreS
 ### 3.5 性能优化
 
 - **bcrypt cost 可配置：** 默认 10（安全），压测设为 8（Login P99 从 221ms 降到 ~80ms）。
-- **DB 连接池可配置：** `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS`，默认 20/5，压测上调至 100/25。
+- **DB 连接池可配置：** `DB_MAX_OPEN_CONNS` / `DB_MAX_IDLE_CONNS`，默认 100/25，可按容量目标调整。
+- **Redis 连接池可配置：** `REDIS_POOL_SIZE` / `REDIS_MIN_IDLE_CONNS` 以及 dial/read/write/pool timeout 都可通过环境变量调整。
 - **限流可配置：** 基于 Redis token bucket（Lua 脚本），IP 级、用户级、Auth 级三层限流，速率通过环境变量控制。
 - **单机 1k QPS：** `GET /me` + `GET /projects` 混合场景，constant-arrival-rate 500 iter/s（1000 HTTP req/s），P50 0.76ms，P95 1.34ms，0% 错误率。
 - **Redis 缓存：** 用户信息缓存（TTL 5min），cache-aside 模式，写操作时主动失效。
@@ -101,7 +102,7 @@ Tasks 列表使用游标分页而非 offset 分页。游标是 base64url 编码�
 | Phase 1 | 用户服务：Register/Login/Logout/Me/BatchGetUsers | JWT + Redis blacklist + bcrypt |
 | Phase 2 | 项目 CRUD、成员管理、权限矩阵 | 完整 RBAC + 乐观锁 |
 | Phase 3 | 任务 CRUD、状态机、游标分页 | 任务状态跃迁校验 |
-| Phase 4 | 评论、操作日志、异步 worker | channel + 批量写入 |
+| Phase 4 | 评论、操作日志、异步 worker | channel + configurable worker + 批量写入 |
 | Phase 5 | 限流、幂等、缓存失效 | Redis token bucket + SETNX |
 | Phase 6 | Metrics、Tracing、Grafana、压测 | 1k QPS 通过 + Dashboard 可观测 |
 
@@ -124,7 +125,7 @@ Tasks 列表使用游标分页而非 offset 分页。游标是 base64url 编码�
 > JWT 是无状态的，签发后无法撤销。本方案将 `jti` 写入 Redis blacklist（TTL = 剩余有效期），gateway 每次验证时查询黑名单。登出是低频操作，Redis 查询 O(1)，工程上是最小成本的登出实现。
 
 **Q: 如果 Redis 挂了怎么办？**
-> 缓存失效降级为查数据库；限流 fail-open（Redis 不可用时放行，避免误杀）；幂等性暂时失效（允许重复请求，但不会丢数据，因为业务层有乐观锁兜底）。所有 Redis 操作都有超时（3s），不会拖垮主流程。
+> 缓存失效降级为查数据库；限流 fail-open（Redis 不可用时放行，避免误杀）；幂等性暂时失效（允许重复请求，但不会丢数据，因为业务层有乐观锁兜底）。Redis 客户端配置了连接池和命令超时，默认 dial 3s、read/write 2s、pool 4s，不会无限阻塞主流程。
 
 **Q: 乐观锁冲突如何重试？**
 > 当前服务端返回错误让客户端重试。如果要实现服务端自动重试，可以在 biz 层加 retry loop（最多 3 次，指数退避）。但通常让客户端重试更合理——客户端有自己的交互上下文，比如展示"更新失败，请重试"。

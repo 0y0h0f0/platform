@@ -2,6 +2,9 @@ package biz
 
 import (
 	"context"
+	"log"
+	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,12 +46,12 @@ var (
 )
 
 type LogWriter struct {
-	repo      data.OperationLogRepository
-	ch        chan *data.OperationLog
-	done      chan struct{}
-	logger    *zap.Logger
-	closed    atomic.Bool
-	wg        sync.WaitGroup
+	repo   data.OperationLogRepository
+	ch     chan *data.OperationLog
+	done   chan struct{}
+	logger *zap.Logger
+	closed atomic.Bool
+	wg     sync.WaitGroup
 }
 
 func NewLogWriter(repo data.OperationLogRepository, logger *zap.Logger) *LogWriter {
@@ -69,9 +72,28 @@ func NewLogWriter(repo data.OperationLogRepository, logger *zap.Logger) *LogWrit
 		done:   make(chan struct{}),
 		logger: logger,
 	}
-	w.wg.Add(1)
-	go w.run()
+	workers := logWorkerCount()
+	w.wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go w.run()
+	}
 	return w
+}
+
+func logWorkerCount() int {
+	s := os.Getenv("LOG_WRITER_WORKERS")
+	if s == "" {
+		return 1
+	}
+	v, err := strconv.Atoi(s)
+	if err != nil || v <= 0 {
+		log.Printf("WARN: invalid value for LOG_WRITER_WORKERS=%q, using default 1", s)
+		return 1
+	}
+	if v > 16 {
+		return 16
+	}
+	return v
 }
 
 func (w *LogWriter) Enqueue(ctx context.Context, log *data.OperationLog) {

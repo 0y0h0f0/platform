@@ -18,8 +18,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	userv1 "task-platform/gen/go/user/v1"
 	taskv1 "task-platform/gen/go/task/v1"
+	userv1 "task-platform/gen/go/user/v1"
 	"task-platform/internal/task/biz"
 	"task-platform/internal/task/data"
 	"task-platform/internal/task/service"
@@ -104,6 +104,7 @@ func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 		grpc.ChainUnaryInterceptor(
 			xgrpc.UnaryServerMetricsInterceptor(),
 			loggingInterceptor(logger),
+			xgrpc.UnaryServerTimeoutInterceptor(xgrpc.ServerTimeoutFromEnv()),
 			interceptor,
 		),
 	)
@@ -214,6 +215,7 @@ func newUserServiceClient(addr, internalToken string) (userv1.UserServiceClient,
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
 		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 		grpc.WithChainUnaryInterceptor(
+			xgrpc.UnaryClientTimeoutInterceptor(xgrpc.ClientTimeoutFromEnv()),
 			xgrpc.UnaryClientMetricsInterceptor(),
 			metadataInterceptor,
 		),
