@@ -45,6 +45,8 @@ var (
 	)
 )
 
+// LogWriter buffers operation logs and writes them in batches so user-facing
+// mutations do not block on every audit insert.
 type LogWriter struct {
 	repo   data.OperationLogRepository
 	ch     chan *data.OperationLog
@@ -54,6 +56,8 @@ type LogWriter struct {
 	wg     sync.WaitGroup
 }
 
+// NewLogWriter starts background workers for operation-log batch inserts. A nil
+// repository disables logging and returns nil for call sites to tolerate.
 func NewLogWriter(repo data.OperationLogRepository, logger *zap.Logger) *LogWriter {
 	if repo == nil {
 		return nil
@@ -96,6 +100,8 @@ func logWorkerCount() int {
 	return v
 }
 
+// Enqueue schedules a log for async persistence. If the buffer is full or the
+// writer is shutting down, it degrades to a synchronous write.
 func (w *LogWriter) Enqueue(ctx context.Context, log *data.OperationLog) {
 	if w == nil {
 		return
@@ -114,6 +120,7 @@ func (w *LogWriter) Enqueue(ctx context.Context, log *data.OperationLog) {
 	}
 }
 
+// Shutdown stops workers and flushes buffered logs with a bounded timeout.
 func (w *LogWriter) Shutdown() {
 	if w == nil {
 		return
@@ -142,6 +149,7 @@ flush:
 func (w *LogWriter) run() {
 	defer w.wg.Done()
 	defer func() {
+		// A worker panic should not permanently disable audit logging.
 		if r := recover(); r != nil {
 			logWriterWorkerPanic.Inc()
 			w.logger.Error("operation log writer worker panicked, restarting",

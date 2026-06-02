@@ -10,6 +10,8 @@ import (
 	"task-platform/pkg/xerr"
 )
 
+// TaskListFilter contains the optional filters used by the task list endpoint.
+// Cursor pagination is bound to these filters in ListTasks.
 type TaskListFilter struct {
 	Status     *int32
 	AssigneeID string
@@ -18,6 +20,7 @@ type TaskListFilter struct {
 	Cursor     string
 }
 
+// TaskBiz owns task validation, permissions, status transitions and audit logs.
 type TaskBiz struct {
 	db          *gorm.DB
 	taskRepo    data.TaskRepository
@@ -27,6 +30,8 @@ type TaskBiz struct {
 	logWriter   *LogWriter
 }
 
+// NewTaskBiz wires task business logic with repositories, user validation and
+// asynchronous operation logging.
 func NewTaskBiz(db *gorm.DB, taskRepo data.TaskRepository, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter) *TaskBiz {
 	return &TaskBiz{
 		db:          db,
@@ -38,6 +43,8 @@ func NewTaskBiz(db *gorm.DB, taskRepo data.TaskRepository, projectRepo data.Proj
 	}
 }
 
+// validTransitions mirrors the frontend transition map so drag/drop and gRPC
+// mutations reject the same illegal state changes.
 var validTransitions = map[int32][]int32{
 	data.TaskStatusTodo:      {data.TaskStatusDoing, data.TaskStatusDone, data.TaskStatusCancelled},
 	data.TaskStatusDoing:     {data.TaskStatusDone, data.TaskStatusCancelled, data.TaskStatusTodo},
@@ -54,6 +61,8 @@ func isValidTransition(from, to int32) bool {
 	return false
 }
 
+// CreateTask adds a todo task to an active project after confirming the caller
+// is a project member.
 func (b *TaskBiz) CreateTask(ctx context.Context, projectID, callerID, title, content string) (*data.Task, error) {
 	if !data.IsValidTaskTitle(title) {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "task title must be 1-200 characters")
@@ -68,6 +77,7 @@ func (b *TaskBiz) CreateTask(ctx context.Context, projectID, callerID, title, co
 	}
 	_ = member
 
+	// New tasks always start in todo with normal priority; assignee is optional.
 	task := &data.Task{
 		ProjectID: projectID,
 		Title:     title,
@@ -90,6 +100,8 @@ func (b *TaskBiz) CreateTask(ctx context.Context, projectID, callerID, title, co
 	return task, nil
 }
 
+// GetTask returns a task only to project members. Non-members receive NOT_FOUND
+// so task existence is not disclosed across projects.
 func (b *TaskBiz) GetTask(ctx context.Context, taskID, callerID string) (*data.Task, error) {
 	task, err := b.taskRepo.FindByID(ctx, taskID)
 	if err != nil {
@@ -107,6 +119,8 @@ func (b *TaskBiz) GetTask(ctx context.Context, taskID, callerID string) (*data.T
 	return task, nil
 }
 
+// UpdateTask changes editable task fields with optimistic locking. Members can
+// update only tasks they created; admins and owners can update any task.
 func (b *TaskBiz) UpdateTask(ctx context.Context, taskID, callerID, title, content string, priority int32, dueTime string, version int64) (*data.Task, error) {
 	if title != "" && !data.IsValidTaskTitle(title) {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "task title must be 1-200 characters")
@@ -146,6 +160,8 @@ func (b *TaskBiz) UpdateTask(ctx context.Context, taskID, callerID, title, conte
 	return updated, nil
 }
 
+// DeleteTask removes a task while enforcing the stricter member delete rule:
+// regular members may delete only their own todo tasks.
 func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*data.Task, error) {
 	task, err := b.taskRepo.FindByID(ctx, taskID)
 	if err != nil {
@@ -160,6 +176,8 @@ func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*dat
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "archived project is read-only")
 	}
 
+	// Returning NOT_FOUND for non-members avoids revealing task IDs in private
+	// projects while still letting callers distinguish archived read-only state.
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, task.ProjectID, callerID)
 	if err != nil {
 		return nil, err
@@ -191,6 +209,8 @@ func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*dat
 	return deleted, nil
 }
 
+// ListTasks returns a cursor-paginated task list for project members. The cursor
+// carries a filter hash to prevent reusing a page token with different filters.
 func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, filter TaskListFilter) ([]*data.Task, string, error) {
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 	if err != nil {
@@ -207,6 +227,8 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 	filterHash := xcursor.ComputeFilterHash(projectID, statusStr, filter.AssigneeID, filter.Keyword)
 
 	if filter.Cursor != "" {
+		// A cursor is valid only for the filter set that produced it; otherwise
+		// stable pagination can skip or duplicate tasks.
 		fields, err := xcursor.DecodeCursor(filter.Cursor)
 		if err != nil {
 			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor")
@@ -236,6 +258,8 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 	}
 
 	if nextCursor != "" {
+		// Re-attach the filter hash generated at the business layer before the
+		// cursor leaves the service boundary.
 		fields, err := xcursor.DecodeCursor(nextCursor)
 		if err == nil {
 			fields["filter_hash"] = filterHash
@@ -250,6 +274,8 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 	return tasks, nextCursor, nil
 }
 
+// AssignTask assigns a task to an active project member. Regular members may
+// assign only tasks they created.
 func (b *TaskBiz) AssignTask(ctx context.Context, taskID, callerID, assigneeID string) (*data.Task, error) {
 	task, err := b.getTaskWithPermission(ctx, taskID, callerID)
 	if err != nil {
@@ -297,6 +323,8 @@ func (b *TaskBiz) AssignTask(ctx context.Context, taskID, callerID, assigneeID s
 	return updated, nil
 }
 
+// ChangeTaskStatus moves a task through the allowed workflow with optimistic
+// locking to reject stale UI updates.
 func (b *TaskBiz) ChangeTaskStatus(ctx context.Context, taskID, callerID string, status int32, version int64) (*data.Task, error) {
 	task, err := b.getTaskWithPermission(ctx, taskID, callerID)
 	if err != nil {

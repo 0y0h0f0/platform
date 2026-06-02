@@ -22,11 +22,13 @@ const (
 	CodeDeadlineExceeded   = "DEADLINE_EXCEEDED"
 )
 
+// FieldDetail carries per-field validation feedback in HTTP responses.
 type FieldDetail struct {
 	Field  string `json:"field"`
 	Reason string `json:"reason"`
 }
 
+// HTTPResponse is the gateway response envelope shared by frontend API clients.
 type HTTPResponse struct {
 	Code      string        `json:"code"`
 	Message   string        `json:"message"`
@@ -35,11 +37,13 @@ type HTTPResponse struct {
 	Data      any           `json:"data,omitempty"`
 }
 
+// Error is the service-local error type that preserves a stable API code.
 type Error struct {
 	Code    string
 	Message string
 }
 
+// NewError creates a coded service error.
 func NewError(code, message string) *Error {
 	return &Error{Code: code, Message: message}
 }
@@ -48,15 +52,18 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
+// GRPCStatus converts the service error into a gRPC status for RPC boundaries.
 func (e *Error) GRPCStatus() *status.Status {
 	return CodeToGRPCStatus(e.Code, e.Message)
 }
 
+// CodeToGRPCStatus maps an API code string to the corresponding gRPC status.
 func CodeToGRPCStatus(code, message string) *status.Status {
 	grpcCode := mapCodeToGRPC(code)
 	return status.New(grpcCode, message)
 }
 
+// GRPCStatusToHTTP maps gRPC status codes to gateway HTTP status codes.
 func GRPCStatusToHTTP(grpcCode codes.Code) int {
 	switch grpcCode {
 	case codes.OK:
@@ -119,6 +126,7 @@ func mapCodeToGRPC(code string) codes.Code {
 	}
 }
 
+// GRPCStatusToCode maps a gRPC status back to the public API code string.
 func GRPCStatusToCode(st *status.Status) string {
 	switch st.Code() {
 	case codes.OK:
@@ -151,6 +159,7 @@ func GRPCStatusToCode(st *status.Status) string {
 }
 
 func safeMessage(st *status.Status) string {
+	// Internal errors are intentionally masked before leaving the gateway.
 	switch st.Code() {
 	case codes.Internal, codes.Unknown:
 		return "internal server error"
@@ -159,6 +168,8 @@ func safeMessage(st *status.Status) string {
 	}
 }
 
+// ToHTTPResponse converts local or gRPC errors into the frontend envelope while
+// preserving request ID correlation.
 func ToHTTPResponse(err error, requestID string) *HTTPResponse {
 	if err == nil {
 		return &HTTPResponse{

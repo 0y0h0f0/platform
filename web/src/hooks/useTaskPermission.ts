@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import type { Project, Task } from '@/api/types'
 import { ProjectStatus, Role, type Role as RoleValue } from '@/utils/constants'
 
+// TaskPermission mirrors backend task rules in a UI-friendly shape.
 export interface TaskPermission {
   canAssignTask: boolean
   canChangeStatus: boolean
@@ -12,6 +13,8 @@ export interface TaskPermission {
   isReadOnly: boolean
 }
 
+// getTaskPermission is pure so tests and components share the same permission
+// calculation.
 export function getTaskPermission(
   project: Project | null | undefined,
   role: RoleValue | null | undefined,
@@ -24,6 +27,8 @@ export function getTaskPermission(
   const isOwner = Boolean(project && userId && project.owner_id === userId) || role === Role.Owner
   const isAdmin = role === Role.Admin
   const isCreator = Boolean(task && userId && task.creator_id === userId)
+  // Owners may be missing from a stale member list, so owner_id is accepted as a
+  // fallback role signal.
   const canViewTask = Boolean(sameProject && userId && (hasProjectRole || isOwner))
   const canWriteTask = Boolean(canViewTask && !isArchived && (isOwner || isAdmin || isCreator))
 
@@ -37,6 +42,7 @@ export function getTaskPermission(
   }
 }
 
+// useTaskPermission memoizes the pure permission calculation for React views.
 export function useTaskPermission(
   project: Project | null | undefined,
   role: RoleValue | null | undefined,

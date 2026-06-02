@@ -1,5 +1,6 @@
 import type { ApiCode, FieldDetail } from '@/api/types'
 
+// errorMessages maps stable backend codes to user-facing fallback messages.
 const errorMessages: Partial<Record<ApiCode, string>> = {
   UNAUTHENTICATED: '登录已过期，请重新登录',
   PERMISSION_DENIED: '没有权限执行此操作',
@@ -15,6 +16,7 @@ const errorMessages: Partial<Record<ApiCode, string>> = {
   NETWORK_ERROR: '网络连接失败，请检查网络',
 }
 
+// AppError preserves backend code and request ID after Axios unwraps responses.
 export class AppError extends Error {
   readonly code: ApiCode | string
   readonly requestId?: string
@@ -34,6 +36,7 @@ export class AppError extends Error {
   }
 }
 
+// getErrorMessage normalizes unknown errors for components and mutations.
 export function getErrorMessage(error: unknown): string {
   if (error instanceof AppError) {
     return errorMessages[error.code as ApiCode] ?? error.message

@@ -8,12 +8,15 @@ import type {
   UpdateProjectRequest,
 } from '@/api/types'
 
+// ProjectListParams mirrors the backend offset-paginated project list request.
 export interface ProjectListParams {
   includeArchived: boolean
   limit: number
   offset: number
 }
 
+// projectQueryKeys centralizes cache keys shared by project, member and log
+// queries.
 export const projectQueryKeys = {
   all: ['projects'] as const,
   list: (params: ProjectListParams) => ['projects', params] as const,
@@ -22,6 +25,7 @@ export const projectQueryKeys = {
 }
 
 function createIdempotencyKey() {
+  // Each project mutation uses a fresh key so retries are idempotent per action.
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
@@ -34,6 +38,7 @@ function toListRequest(params: ProjectListParams): ListProjectsRequest {
 }
 
 function writeProjectDetail(queryClient: ReturnType<typeof useQueryClient>, project: Project) {
+  // Keep the detail cache fresh immediately after mutations that return project.
   queryClient.setQueryData(projectQueryKeys.detail(project.id), { project })
 }
 
@@ -56,9 +61,12 @@ function invalidateProjectMembers(
 }
 
 function invalidateProjectLogs(queryClient: ReturnType<typeof useQueryClient>, projectId: string) {
+  // Most project mutations enqueue operation logs asynchronously; invalidation
+  // lets the UI pick them up after the write settles.
   queryClient.invalidateQueries({ queryKey: ['operation-logs', 'projects', projectId] })
 }
 
+// useProjectsQuery keeps previous data to avoid table flicker while paging.
 export function useProjectsQuery(params: ProjectListParams) {
   return useQuery({
     queryKey: projectQueryKeys.list(params),
@@ -140,6 +148,8 @@ export function useUnarchiveProjectMutation() {
   })
 }
 
+// useTransferProjectOwnershipMutation invalidates detail and member caches
+// because both owner_id and role assignments change.
 export function useTransferProjectOwnershipMutation(projectId: string) {
   const queryClient = useQueryClient()
 

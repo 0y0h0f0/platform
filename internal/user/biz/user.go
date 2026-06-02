@@ -47,6 +47,7 @@ var (
 	hasDigit   = regexp.MustCompile(`[0-9]`)
 )
 
+// UserBiz owns registration, login, password policy and user cache rules.
 type UserBiz struct {
 	repo          data.UserRepository
 	rdb           *redis.Client
@@ -55,6 +56,8 @@ type UserBiz struct {
 	sf            singleflight.Group
 }
 
+// NewUserBiz builds a user business service. Redis is optional; when omitted,
+// all reads go directly to the repository.
 func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []string) *UserBiz {
 	set := make(map[string]bool, len(weakPasswords))
 	for _, pw := range weakPasswords {
@@ -63,16 +66,20 @@ func NewUserBiz(repo data.UserRepository, rdb *redis.Client, weakPasswords []str
 	return &UserBiz{repo: repo, rdb: rdb, weakPasswords: set, logger: zap.NewNop()}
 }
 
+// SetLogger replaces the default no-op logger used for cache and rehash errors.
 func (b *UserBiz) SetLogger(logger *zap.Logger) {
 	if logger != nil {
 		b.logger = logger
 	}
 }
 
+// HashPassword hashes a password with the configured bcrypt cost.
 func HashPassword(plain string) (string, error) {
 	return HashPasswordWithCost(plain, bcryptCost)
 }
 
+// HashPasswordWithCost exists mainly for tests and controlled migrations where
+// the bcrypt cost must be explicit.
 func HashPasswordWithCost(plain string, cost int) (string, error) {
 	bytes, err := bcrypt.GenerateFromPassword([]byte(plain), cost)
 	if err != nil {
@@ -81,6 +88,8 @@ func HashPasswordWithCost(plain string, cost int) (string, error) {
 	return string(bytes), nil
 }
 
+// VerifyPassword compares a plain password with a bcrypt hash and maps failures
+// to the service's unauthenticated error code.
 func VerifyPassword(hashed, plain string) error {
 	err := bcrypt.CompareHashAndPassword([]byte(hashed), []byte(plain))
 	if err != nil {
@@ -89,10 +98,14 @@ func VerifyPassword(hashed, plain string) error {
 	return nil
 }
 
+// NeedsRehash reports whether a stored hash uses a cost lower than the current
+// configured bcrypt cost.
 func NeedsRehash(hash string) bool {
 	return needsRehash(hash)
 }
 
+// Register validates account fields, rejects weak passwords and stores the user
+// with a lower-cased email address.
 func (b *UserBiz) Register(ctx context.Context, username, email, password string) (*data.User, error) {
 	if !usernameRE.MatchString(username) {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "username: 3-32 chars, letters, digits, underscores")
@@ -127,6 +140,8 @@ func (b *UserBiz) Register(ctx context.Context, username, email, password string
 	return user, nil
 }
 
+// Login accepts either username or email. All credential and disabled-account
+// failures return the same message to avoid account enumeration.
 func (b *UserBiz) Login(ctx context.Context, account, password string) (*data.User, error) {
 	if strings.Contains(account, "@") {
 		account = strings.ToLower(account)
@@ -142,6 +157,7 @@ func (b *UserBiz) Login(ctx context.Context, account, password string) (*data.Us
 		return nil, xerr.NewError(xerr.CodeUnauthenticated, "invalid account or password")
 	}
 	if needsRehash(user.PasswordHash) {
+		// Upgrade password hashes opportunistically after a successful login.
 		if rehashed, err := HashPassword(password); err == nil {
 			if err := b.repo.UpdatePasswordHash(ctx, user.ID, rehashed); err != nil {
 				b.logger.Error("failed to rehash password",
@@ -161,6 +177,8 @@ func needsRehash(hash string) bool {
 	return cost < bcryptCost
 }
 
+// GetUser reads a single user with optional Redis caching and singleflight to
+// collapse concurrent cache misses.
 func (b *UserBiz) GetUser(ctx context.Context, userID string) (*data.User, error) {
 	if b.rdb != nil {
 		if u := b.getCachedUser(ctx, userID); u != nil {
@@ -191,6 +209,8 @@ func (b *UserBiz) GetUser(ctx context.Context, userID string) (*data.User, error
 	return v.(*data.User), nil
 }
 
+// BatchGetUsers fetches up to 100 users, mixing cache hits with a batched DB
+// lookup for misses. The returned order is cache-hit order followed by DB order.
 func (b *UserBiz) BatchGetUsers(ctx context.Context, ids []string) ([]*data.User, error) {
 	if len(ids) > 100 {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "too many user ids, max 100")

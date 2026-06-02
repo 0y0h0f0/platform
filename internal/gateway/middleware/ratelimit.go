@@ -74,6 +74,8 @@ var publicPaths = map[string]bool{
 	"/api/v1/auth/login":    true,
 }
 
+// RateLimitByIP protects public and anonymous traffic. Auth endpoints use a
+// tighter bucket because they are credential-bearing.
 func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
 	registerRateLimiterMetrics()
 	tb := xratelimit.New(rdb)
@@ -97,6 +99,7 @@ func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
 
 		allowed, err := tb.Allow(c.Request.Context(), key, rate, burst)
 		if err != nil {
+			// Fail open on Redis errors so rate limiting cannot take the gateway down.
 			rateLimiterErrors.Inc()
 			c.Next()
 			return
@@ -115,6 +118,8 @@ func RateLimitByIP(rdb *redis.Client) gin.HandlerFunc {
 	}
 }
 
+// RateLimitByUser applies a second bucket after authentication so one busy user
+// cannot consume all capacity from a shared IP.
 func RateLimitByUser(rdb *redis.Client) gin.HandlerFunc {
 	registerRateLimiterMetrics()
 	tb := xratelimit.New(rdb)
@@ -133,6 +138,7 @@ func RateLimitByUser(rdb *redis.Client) gin.HandlerFunc {
 		key := "ratelimit:user:" + userID
 		allowed, err := tb.Allow(c.Request.Context(), key, userRate, userBurst)
 		if err != nil {
+			// Fail open on Redis errors so authenticated traffic is not hard-blocked.
 			rateLimiterErrors.Inc()
 			c.Next()
 			return

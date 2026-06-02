@@ -7,11 +7,13 @@ import (
 
 	"gorm.io/gorm"
 
-	"task-platform/pkg/xerr"
 	"task-platform/pkg/xcursor"
+	"task-platform/pkg/xerr"
 	"time"
 )
 
+// ProjectRepository defines project persistence operations used by business
+// logic. Update uses version-based optimistic locking.
 type ProjectRepository interface {
 	Create(ctx context.Context, project *Project) error
 	FindByID(ctx context.Context, id string) (*Project, error)
@@ -19,6 +21,7 @@ type ProjectRepository interface {
 	FindByMemberID(ctx context.Context, userID string, includeArchived bool, limit, offset int) ([]*Project, error)
 }
 
+// MemberRepository defines project membership lookups and role changes.
 type MemberRepository interface {
 	Add(ctx context.Context, member *ProjectMember) error
 	Remove(ctx context.Context, projectID, userID string) error
@@ -28,6 +31,8 @@ type MemberRepository interface {
 	FindOwnerByProject(ctx context.Context, projectID string) (*ProjectMember, error)
 }
 
+// TaskRepository defines task persistence operations. List uses stable cursor
+// pagination ordered by created_at and id.
 type TaskRepository interface {
 	Create(ctx context.Context, task *Task) error
 	FindByID(ctx context.Context, id string) (*Task, error)
@@ -36,6 +41,8 @@ type TaskRepository interface {
 	List(ctx context.Context, filter TaskFilter) (tasks []*Task, nextCursor string, err error)
 }
 
+// TaskFilter is the data-layer representation of task list filters and cursor
+// metadata. FilterHash is produced by business logic, not by SQL.
 type TaskFilter struct {
 	ProjectID  string
 	Status     *int32
@@ -46,6 +53,7 @@ type TaskFilter struct {
 	FilterHash string
 }
 
+// CommentRepository defines comment persistence and forward pagination.
 type CommentRepository interface {
 	Create(ctx context.Context, comment *TaskComment) error
 	FindByID(ctx context.Context, id string) (*TaskComment, error)
@@ -53,6 +61,7 @@ type CommentRepository interface {
 	ListByTask(ctx context.Context, taskID string, limit int32, afterID string) ([]*TaskComment, error)
 }
 
+// OperationLogRepository defines batched audit writes and log pagination.
 type OperationLogRepository interface {
 	CreateBatch(ctx context.Context, logs []*OperationLog) error
 	ListByProject(ctx context.Context, projectID string, limit int, cursor string) ([]*OperationLog, string, error)
@@ -65,22 +74,27 @@ type taskRepo struct{ db *gorm.DB }
 type commentRepo struct{ db *gorm.DB }
 type operationLogRepo struct{ db *gorm.DB }
 
+// NewProjectRepository returns a GORM-backed project repository.
 func NewProjectRepository(db *gorm.DB) ProjectRepository {
 	return &projectRepo{db: db}
 }
 
+// NewMemberRepository returns a GORM-backed project-member repository.
 func NewMemberRepository(db *gorm.DB) MemberRepository {
 	return &memberRepo{db: db}
 }
 
+// NewTaskRepository returns a GORM-backed task repository.
 func NewTaskRepository(db *gorm.DB) TaskRepository {
 	return &taskRepo{db: db}
 }
 
+// NewCommentRepository returns a GORM-backed comment repository.
 func NewCommentRepository(db *gorm.DB) CommentRepository {
 	return &commentRepo{db: db}
 }
 
+// NewOperationLogRepository returns a GORM-backed operation-log repository.
 func NewOperationLogRepository(db *gorm.DB) OperationLogRepository {
 	return &operationLogRepo{db: db}
 }
@@ -109,6 +123,8 @@ func (r *projectRepo) FindByID(ctx context.Context, id string) (*Project, error)
 }
 
 func (r *projectRepo) Update(ctx context.Context, id string, version int64, updates map[string]any) (*Project, error) {
+	// The version predicate turns concurrent edits into ABORTED instead of
+	// silently overwriting a newer project state.
 	result := r.db.WithContext(ctx).Model(&Project{}).
 		Where("id = ? AND version = ?", id, version).
 		Updates(updates)
@@ -234,6 +250,7 @@ func (r *taskRepo) FindByID(ctx context.Context, id string) (*Task, error) {
 }
 
 func (r *taskRepo) Update(ctx context.Context, id string, version int64, updates map[string]any) (*Task, error) {
+	// The version predicate protects task updates from stale UI submissions.
 	result := r.db.WithContext(ctx).Model(&Task{}).
 		Where("id = ? AND version = ?", id, version).
 		Updates(updates)
@@ -276,6 +293,8 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 	}
 
 	if filter.Cursor != "" {
+		// Seek pagination uses the same descending order as the query, avoiding
+		// offset drift when tasks are inserted between page requests.
 		fields, err := xcursor.DecodeCursor(filter.Cursor)
 		if err != nil {
 			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor")
@@ -298,6 +317,7 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 	if filter.Limit <= 0 || filter.Limit > 50 {
 		filter.Limit = 20
 	}
+	// Fetch one extra row to decide whether a next cursor should be emitted.
 	query = query.Order("created_at DESC, id DESC").Limit(filter.Limit + 1)
 
 	var tasks []*Task
@@ -363,6 +383,8 @@ func (r *commentRepo) ListByTask(ctx context.Context, taskID string, limit int32
 	}
 	query := r.db.WithContext(ctx).Where("task_id = ?", taskID)
 	if afterID != "" {
+		// Comments page forward from an anchor comment because the UI appends older
+		// batches below the already-rendered conversation.
 		var anchor TaskComment
 		if err := r.db.WithContext(ctx).Where("id = ?", afterID).First(&anchor).Error; err != nil {
 			return nil, xerr.NewError(xerr.CodeNotFound, "after_id comment not found")
@@ -406,6 +428,8 @@ func (r *operationLogRepo) listLogs(ctx context.Context, where string, arg strin
 	query := r.db.WithContext(ctx).Where(where, arg)
 
 	if cursor != "" {
+		// Operation logs use the same seek cursor shape as tasks so new logs do not
+		// shift later pages.
 		fields, err := xcursor.DecodeCursor(cursor)
 		if err != nil {
 			return nil, "", xerr.NewError(xerr.CodeInvalidArgument, "invalid cursor")

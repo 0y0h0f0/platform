@@ -15,10 +15,12 @@ function base64UrlToBytes(value: string): Uint8Array {
   return Uint8Array.from(binary, (char) => char.charCodeAt(0))
 }
 
+// encodeCursor mirrors the backend cursor shape for frontend-only mocks/tests.
 export function encodeCursor(value: CursorValue): string {
   return bytesToBase64Url(new TextEncoder().encode(JSON.stringify(value)))
 }
 
+// decodeCursor restores cursor payloads produced by encodeCursor.
 export function decodeCursor<T extends CursorValue = CursorValue>(cursor: string): T {
   const bytes = base64UrlToBytes(cursor)
   return JSON.parse(new TextDecoder().decode(bytes)) as T

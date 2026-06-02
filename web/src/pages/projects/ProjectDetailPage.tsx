@@ -24,6 +24,8 @@ import {
 const { Paragraph, Text, Title } = Typography
 
 function parseStatus(value: string | null): ProjectTaskFilters['status'] {
+  // Query strings are untrusted, so invalid status values are ignored instead
+  // of being sent to the API.
   if (value === null || value === '') {
     return undefined
   }
@@ -55,6 +57,8 @@ export default function ProjectDetailPage() {
   const createTaskOpen = searchParams.get('createTask') === '1'
 
   const filters = useMemo<ProjectTaskFilters>(
+    // Keep board filters in the URL so detail drawers and reloads preserve the
+    // current project view.
     () => ({
       assigneeId: searchParams.get('assignee') || undefined,
       keyword: searchParams.get('keyword') || undefined,
@@ -69,6 +73,7 @@ export default function ProjectDetailPage() {
   const archived = project?.status === ProjectStatus.Archived
 
   const updateSearchParams = (nextValues: Record<string, string | number | undefined>) => {
+    // Merge partial updates so opening a task drawer does not reset filters/tabs.
     const next = new URLSearchParams(searchParams)
     Object.entries(nextValues).forEach(([key, value]) => {
       if (value === undefined || value === '') {

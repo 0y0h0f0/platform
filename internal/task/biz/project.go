@@ -21,10 +21,14 @@ const (
 	projectCachePrefix = "project:"
 )
 
+// UserServiceClient is the task service's narrow dependency on user-service.
+// Keeping only the validation method here avoids coupling task business rules
+// to the generated user-service client.
 type UserServiceClient interface {
 	GetUser(ctx context.Context, userID string) (userExists bool, userActive bool, err error)
 }
 
+// ProjectBiz coordinates project ownership, membership and audit logging rules.
 type ProjectBiz struct {
 	db          *gorm.DB
 	projectRepo data.ProjectRepository
@@ -35,6 +39,8 @@ type ProjectBiz struct {
 	sf          singleflight.Group
 }
 
+// NewProjectBiz wires project business logic with repositories, user validation,
+// operation logging and optional Redis-backed project caching.
 func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo data.MemberRepository, userClient UserServiceClient, logWriter *LogWriter, rdb *redis.Client) *ProjectBiz {
 	return &ProjectBiz{
 		db:          db,
@@ -46,6 +52,8 @@ func NewProjectBiz(db *gorm.DB, projectRepo data.ProjectRepository, memberRepo d
 	}
 }
 
+// CreateProject creates a project and inserts the creator as the owner in one
+// transaction so a project never exists without its owner membership.
 func (b *ProjectBiz) CreateProject(ctx context.Context, callerID, name, description string) (*data.Project, error) {
 	if !data.IsValidProjectName(name) {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "project name must be 1-100 characters")
@@ -86,6 +94,8 @@ func (b *ProjectBiz) CreateProject(ctx context.Context, callerID, name, descript
 	return project, nil
 }
 
+// GetProject verifies membership before returning project data. Missing
+// membership is reported as NOT_FOUND so private project existence is not leaked.
 func (b *ProjectBiz) GetProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 	if err != nil {
@@ -101,6 +111,7 @@ func (b *ProjectBiz) GetProject(ctx context.Context, projectID, callerID string)
 		}
 	}
 
+	// Singleflight collapses concurrent cache misses for the same project.
 	v, err, _ := b.sf.Do(projectID, func() (any, error) {
 		if b.rdb != nil {
 			if p := b.getCachedProject(ctx, projectID); p != nil {
@@ -124,6 +135,8 @@ func (b *ProjectBiz) GetProject(ctx context.Context, projectID, callerID string)
 	return v.(*data.Project), nil
 }
 
+// UpdateProject changes editable project fields with optimistic locking.
+// The caller must be the owner and archived projects remain read-only.
 func (b *ProjectBiz) UpdateProject(ctx context.Context, projectID, callerID, name, description string, version int64) (*data.Project, error) {
 	if name != "" && !data.IsValidProjectName(name) {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "project name must be 1-100 characters")
@@ -162,6 +175,7 @@ func (b *ProjectBiz) UpdateProject(ctx context.Context, projectID, callerID, nam
 	return updated, nil
 }
 
+// ArchiveProject marks a project read-only. Only the owner can archive it.
 func (b *ProjectBiz) ArchiveProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
 	_, member, err := b.getProjectAndMember(ctx, projectID, callerID)
 	if err != nil {
@@ -185,6 +199,8 @@ func (b *ProjectBiz) ArchiveProject(ctx context.Context, projectID, callerID str
 	return project, nil
 }
 
+// UnarchiveProject restores writes for an archived project. Only the owner can
+// bring the project back to active state.
 func (b *ProjectBiz) UnarchiveProject(ctx context.Context, projectID, callerID string) (*data.Project, error) {
 	_, member, err := b.getProjectAndMember(ctx, projectID, callerID)
 	if err != nil {
@@ -208,6 +224,8 @@ func (b *ProjectBiz) UnarchiveProject(ctx context.Context, projectID, callerID s
 	return project, nil
 }
 
+// TransferOwnership promotes an existing active member to owner and demotes the
+// current owner to admin in the same transaction.
 func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID, targetUserID string) (*data.Project, error) {
 	if callerID == targetUserID {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "cannot transfer ownership to yourself")
@@ -279,6 +297,8 @@ func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID,
 	return updated, nil
 }
 
+// AddProjectMember invites an active user into a project. Owners may add admins
+// or members; admins may only add regular members.
 func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, targetUserID string, role int32) (*data.ProjectMember, error) {
 	if role != data.RoleAdmin && role != data.RoleMember {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "invalid role: can only add admin or member")
@@ -327,6 +347,8 @@ func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, 
 	return member, nil
 }
 
+// RemoveProjectMember removes another member according to role hierarchy.
+// Self-removal is handled by LeaveProject so owner-transfer checks stay explicit.
 func (b *ProjectBiz) RemoveProjectMember(ctx context.Context, projectID, callerID, targetUserID string) (*data.ProjectMember, error) {
 	project, callerMember, err := b.getProjectAndMember(ctx, projectID, callerID)
 	if err != nil {
@@ -370,6 +392,8 @@ func (b *ProjectBiz) RemoveProjectMember(ctx context.Context, projectID, callerI
 	return targetMember, nil
 }
 
+// UpdateProjectMemberRole changes admin/member roles. Owner changes are routed
+// through TransferOwnership to keep exactly one owner for the project.
 func (b *ProjectBiz) UpdateProjectMemberRole(ctx context.Context, projectID, callerID, targetUserID string, role int32) (*data.ProjectMember, error) {
 	if role != data.RoleAdmin && role != data.RoleMember {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "invalid role")
@@ -410,6 +434,7 @@ func (b *ProjectBiz) UpdateProjectMemberRole(ctx context.Context, projectID, cal
 	return updated, nil
 }
 
+// LeaveProject lets a non-owner member leave an active project.
 func (b *ProjectBiz) LeaveProject(ctx context.Context, projectID, callerID string) (*data.ProjectMember, error) {
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 	if err != nil {
@@ -442,6 +467,8 @@ func (b *ProjectBiz) LeaveProject(ctx context.Context, projectID, callerID strin
 	return member, nil
 }
 
+// ListProjectMembers returns members only after confirming the caller belongs
+// to the project.
 func (b *ProjectBiz) ListProjectMembers(ctx context.Context, projectID, callerID string) ([]*data.ProjectMember, error) {
 	if _, err := b.requireMember(ctx, projectID, callerID); err != nil {
 		return nil, err
@@ -449,6 +476,8 @@ func (b *ProjectBiz) ListProjectMembers(ctx context.Context, projectID, callerID
 	return b.memberRepo.ListByProject(ctx, projectID)
 }
 
+// CheckProjectMember is used by callers that need a fast membership probe
+// without surfacing NOT_FOUND as an error.
 func (b *ProjectBiz) CheckProjectMember(ctx context.Context, projectID, userID string) (bool, int32, error) {
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, userID)
 	if err != nil {
@@ -460,6 +489,8 @@ func (b *ProjectBiz) CheckProjectMember(ctx context.Context, projectID, userID s
 	return true, member.Role, nil
 }
 
+// ListProjects returns projects visible to the caller, capped to a conservative
+// page size for gateway-driven lists.
 func (b *ProjectBiz) ListProjects(ctx context.Context, callerID string, includeArchived bool, limit, offset int) ([]*data.Project, error) {
 	if limit <= 0 || limit > 50 {
 		limit = 20
@@ -476,6 +507,8 @@ func (b *ProjectBiz) getProjectAndMember(ctx context.Context, projectID, callerI
 		return nil, nil, err
 	}
 
+	// Archived projects can still be read by members; write paths layer their own
+	// read-only checks on top of this shared membership lookup.
 	if project.Status == data.ProjectStatusArchived {
 		member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 		if err != nil {

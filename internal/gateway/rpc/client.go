@@ -16,6 +16,7 @@ import (
 	"task-platform/pkg/xgrpc"
 )
 
+// Clients owns gateway RPC connections to downstream services.
 type Clients struct {
 	UserClient userv1.UserServiceClient
 	TaskClient taskv1.TaskServiceClient
@@ -23,6 +24,8 @@ type Clients struct {
 	taskConn   *grpc.ClientConn
 }
 
+// NewClients dials user-service and task-service with tracing, timeouts, metrics
+// and internal authentication metadata.
 func NewClients(_ context.Context, userServiceAddr, taskServiceAddr, internalToken string) (*Clients, error) {
 	userConn, err := dial(userServiceAddr, internalToken)
 	if err != nil {
@@ -45,6 +48,8 @@ func NewClients(_ context.Context, userServiceAddr, taskServiceAddr, internalTok
 
 func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 	metadataInterceptor := func(ctx context.Context, method string, req, reply any, cc *grpc.ClientConn, invoker grpc.UnaryInvoker, opts ...grpc.CallOption) error {
+		// Forward identity and request correlation metadata from the HTTP layer to
+		// downstream gRPC services.
 		md, _ := metadata.FromOutgoingContext(ctx)
 		if md == nil {
 			md = metadata.New(nil)
@@ -73,6 +78,7 @@ func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 	)
 }
 
+// Close releases downstream gRPC connections.
 func (c *Clients) Close() error {
 	uerr := c.userConn.Close()
 	terr := c.taskConn.Close()

@@ -4,6 +4,7 @@ import type { ApiEnvelope } from './types'
 import { AppError } from '@/utils/error'
 import { clearToken, getToken } from '@/utils/token'
 
+// Extend Axios config with app-level flags understood by the request interceptor.
 declare module 'axios' {
   export interface AxiosRequestConfig {
     idempotencyKey?: string
@@ -11,6 +12,7 @@ declare module 'axios' {
   }
 }
 
+// Idempotency keys are only sent for write operations that handlers can replay.
 const writeMethods = new Set(['post', 'put', 'delete'])
 
 function createRequestId(): string {
@@ -23,6 +25,7 @@ export const apiClient = axios.create({
 })
 
 apiClient.interceptors.request.use((config) => {
+  // Attach auth and tracing headers at the edge so API modules stay declarative.
   const headers = AxiosHeaders.from(config.headers)
   const token = getToken()
 
@@ -43,6 +46,8 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (response) => {
+    // Backend responses are wrapped in a stable envelope; unwrap OK payloads and
+    // raise AppError for coded failures.
     const envelope = response.data as ApiEnvelope
 
     if (!envelope || typeof envelope !== 'object' || !('code' in envelope)) {
@@ -61,6 +66,8 @@ apiClient.interceptors.response.use(
     }
 
     if (error.response?.status === 401) {
+      // Notify auth guards even when the failing request did not come from an
+      // auth-specific query.
       clearToken()
       window.dispatchEvent(new CustomEvent('auth:expired'))
     }
@@ -85,6 +92,7 @@ apiClient.interceptors.response.use(
   },
 )
 
+// request keeps API modules typed without exposing Axios response envelopes.
 export function request<T>(config: AxiosRequestConfig): Promise<T> {
   return apiClient.request<unknown, T>(config)
 }

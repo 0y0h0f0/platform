@@ -18,6 +18,8 @@ const (
 	defaultIdleTimeout       = 60 * time.Second
 )
 
+// ServerTimeouts groups HTTP server timeout knobs so services can override only
+// the values they need.
 type ServerTimeouts struct {
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
@@ -25,6 +27,7 @@ type ServerTimeouts struct {
 	IdleTimeout       time.Duration
 }
 
+// DefaultServerTimeouts returns production-safe defaults for HTTP servers.
 func DefaultServerTimeouts() ServerTimeouts {
 	return ServerTimeouts{
 		ReadHeaderTimeout: defaultReadHeaderTimeout,
@@ -34,6 +37,8 @@ func DefaultServerTimeouts() ServerTimeouts {
 	}
 }
 
+// ServerTimeoutsFromSeconds converts positive config values into durations and
+// leaves non-positive values at defaults.
 func ServerTimeoutsFromSeconds(readHeader, read, write, idle int) ServerTimeouts {
 	timeouts := DefaultServerTimeouts()
 	if readHeader > 0 {
@@ -51,6 +56,7 @@ func ServerTimeoutsFromSeconds(readHeader, read, write, idle int) ServerTimeouts
 	return timeouts
 }
 
+// NewServer creates an http.Server with defaults filled for missing timeouts.
 func NewServer(addr string, handler http.Handler, timeouts ServerTimeouts) *http.Server {
 	defaults := DefaultServerTimeouts()
 	if timeouts.ReadHeaderTimeout <= 0 {
@@ -87,6 +93,8 @@ var (
 	metricsOnce sync.Once
 )
 
+// NewEngine builds the base Gin engine shared by services, including health,
+// readiness and Prometheus endpoints.
 func NewEngine(service string, ready *atomic.Bool) *gin.Engine {
 	metricsOnce.Do(func() {
 		prometheus.MustRegister(bootCounter)

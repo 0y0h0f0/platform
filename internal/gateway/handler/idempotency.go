@@ -26,6 +26,7 @@ type bodyCaptureWriter struct {
 	body *bytes.Buffer
 }
 
+// Write captures successful handler output while still streaming it to Gin.
 func (w *bodyCaptureWriter) Write(b []byte) (int, error) {
 	w.body.Write(b)
 	return w.ResponseWriter.Write(b)
@@ -60,13 +61,16 @@ func clearIdempotencyKey(ctx context.Context, rdb *redis.Client, key string) {
 	}
 }
 
+// SetupIdempotency implements per-user write idempotency for handlers. It
+// returns shouldReturn when a cached/pending response has already been sent.
 func SetupIdempotency(c *gin.Context, rdb *redis.Client) (shouldReturn bool, cleanup func()) {
 	key := c.GetHeader("Idempotency-Key")
 	if key == "" || rdb == nil {
 		return false, func() {}
 	}
 
-	// Scope idempotency keys to the authenticated user
+	// Scope client-provided keys to the authenticated user so two users can reuse
+	// the same UUID without sharing cached responses.
 	userID := middleware.GetUserID(c.Request.Context())
 	if userID != "" {
 		key = userID + ":" + key
@@ -94,6 +98,7 @@ func SetupIdempotency(c *gin.Context, rdb *redis.Client) (shouldReturn bool, cle
 	c.Writer = capture
 
 	cleanup = func() {
+		// Failed writes clear the pending key so callers can retry with the same key.
 		if c.Writer.Status() >= 400 {
 			clearIdempotencyKey(c.Request.Context(), rdb, key)
 		} else {

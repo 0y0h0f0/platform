@@ -12,6 +12,7 @@ import {
 import { TaskStatus, type TaskStatus as TaskStatusValue } from '@/utils/constants'
 import { KanbanColumn } from './KanbanColumn'
 
+// BOARD_STATUSES defines the visible column order and matches backend statuses.
 const BOARD_STATUSES = [
   TaskStatus.Todo,
   TaskStatus.Doing,
@@ -54,11 +55,13 @@ export function KanbanBoard({
   const tasksQuery = useTasksQuery(queryParams)
   const changeStatusMutation = useChangeTaskStatusMutation()
   const tasks = useMemo(
+    // The board renders all loaded pages at once; fetchNextPage appends more.
     () => tasksQuery.data?.pages.flatMap((page) => page.tasks) ?? [],
     [tasksQuery.data],
   )
 
   const tasksByStatus = useMemo(() => {
+    // Build stable arrays per column so each column stays simple and stateless.
     return BOARD_STATUSES.reduce(
       (acc, boardStatus) => {
         acc[boardStatus] = tasks.filter((task) => task.status === boardStatus)
@@ -69,6 +72,8 @@ export function KanbanBoard({
   }, [tasks])
 
   const handleChangeStatus = (task: Task, nextStatus: TaskStatusValue) => {
+    // Guard the client-side interaction before the mutation reaches backend
+    // transition validation.
     if (disabled || !isAllowedStatusTransition(task.status, nextStatus)) {
       return
     }

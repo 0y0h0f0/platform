@@ -16,6 +16,7 @@ interface AuthState {
 }
 
 function readInitialToken() {
+  // Guards SSR/test environments where localStorage is not available.
   if (typeof window === 'undefined') {
     return null
   }
@@ -24,11 +25,14 @@ function readInitialToken() {
 
 const initialToken = readInitialToken()
 
+// useAuthStore is the single source of truth for auth session state. The token
+// is persisted separately so reloads can rehydrate before /me succeeds.
 export const useAuthStore = create<AuthState>((set, get) => ({
   status: initialToken ? 'loading' : 'unauthenticated',
   user: null,
   accessToken: initialToken,
   hydrate: () => {
+    // Re-read storage because the API client may clear the token after a 401.
     const token = getToken()
     set({
       accessToken: token,
@@ -50,6 +54,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ status: 'authenticated', user })
   },
   setUnauthenticated: () => {
+    // Clearing storage first prevents a reload from reviving an expired session.
     clearToken()
     set({ accessToken: null, status: 'unauthenticated', user: null })
   },

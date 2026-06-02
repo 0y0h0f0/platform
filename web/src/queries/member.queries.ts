@@ -10,11 +10,14 @@ interface UpdateMemberRoleVariables {
   userId: string
 }
 
+// memberQueryKeys aliases project member keys so settings panels and mutations
+// invalidate the same cache entries.
 export const memberQueryKeys = {
   project: (projectId: string) => projectQueryKeys.members(projectId),
 }
 
 function createIdempotencyKey() {
+  // Member mutations are writes and participate in gateway idempotency.
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
@@ -22,10 +25,13 @@ function invalidateMemberQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   projectId: string,
 ) {
+  // Membership changes also append operation logs, so both views refresh
+  // together.
   queryClient.invalidateQueries({ queryKey: memberQueryKeys.project(projectId) })
   queryClient.invalidateQueries({ queryKey: operationLogQueryKeys.project(projectId) })
 }
 
+// useProjectMembersQuery loads project-scoped membership for permissions and UI.
 export function useProjectMembersQuery(projectId: string) {
   return useQuery({
     queryKey: memberQueryKeys.project(projectId),

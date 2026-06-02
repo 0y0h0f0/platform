@@ -19,6 +19,7 @@ import type {
 } from '@/api/types'
 import type { TaskStatus } from '@/utils/constants'
 
+// TaskListParams is the UI-facing filter shape for task list queries.
 export interface TaskListParams {
   assigneeId?: string
   keyword?: string
@@ -27,6 +28,8 @@ export interface TaskListParams {
   status?: TaskStatus
 }
 
+// TaskListCacheFilters is normalized before entering query keys so equivalent
+// empty filters share the same cache entry.
 export interface TaskListCacheFilters {
   assigneeId: string
   keyword: string
@@ -52,6 +55,7 @@ interface UpdateTaskVariables {
 type TaskListQueryKey = readonly ['tasks', TaskListCacheFilters]
 type TaskListSnapshot = Array<[TaskListQueryKey, InfiniteData<ListTasksData> | undefined]>
 
+// taskQueryKeys keeps list/detail cache keys stable across components and tests.
 export const taskQueryKeys = {
   all: ['tasks'] as const,
   list: (params: TaskListParams) =>
@@ -68,6 +72,7 @@ export const taskQueryKeys = {
 }
 
 function createIdempotencyKey() {
+  // Mutations generate one key per user action so retries can be safely replayed.
   return window.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
@@ -83,6 +88,8 @@ function toListRequest(params: TaskListParams, cursor: string): ListTasksRequest
 }
 
 function isTaskListQueryKey(queryKey: QueryKey): queryKey is TaskListQueryKey {
+  // React Query stores arbitrary keys, so optimistic updates first narrow to the
+  // normalized task-list key shape.
   if (queryKey.length !== 2 || queryKey[0] !== 'tasks') {
     return false
   }
@@ -119,6 +126,8 @@ function taskMatchesFilters(task: Task, filters: TaskListCacheFilters) {
   return task.title.toLowerCase().includes(keyword) || task.content.toLowerCase().includes(keyword)
 }
 
+// upsertTaskInInfiniteData updates every loaded page that could contain the task
+// and removes it from pages whose filters no longer match.
 export function upsertTaskInInfiniteData(
   data: InfiniteData<ListTasksData> | undefined,
   task: Task,
@@ -158,6 +167,8 @@ export function upsertTaskInInfiniteData(
 }
 
 function snapshotTaskListQueries(queryClient: QueryClient): TaskListSnapshot {
+  // Capture all loaded task lists so an optimistic mutation can roll back every
+  // affected filter tab.
   return queryClient
     .getQueriesData<InfiniteData<ListTasksData>>({
       predicate: (query) => isTaskListQueryKey(query.queryKey),
@@ -208,6 +219,8 @@ async function applyOptimisticTask(
   queryClient: QueryClient,
   task: Task,
 ): Promise<{ detail?: TaskData; lists: TaskListSnapshot }> {
+  // Cancel in-flight fetches before writing optimistic state; late responses are
+  // reconciled by the final invalidation.
   await queryClient.cancelQueries({ queryKey: taskQueryKeys.all })
 
   const snapshot = {
@@ -226,6 +239,7 @@ function invalidateTaskQueries(queryClient: QueryClient, taskId: string) {
   queryClient.invalidateQueries({ queryKey: taskQueryKeys.all })
 }
 
+// useTasksQuery loads tasks with backend cursor pagination.
 export function useTasksQuery(params: TaskListParams) {
   return useInfiniteQuery({
     queryKey: taskQueryKeys.list(params),
@@ -256,6 +270,8 @@ export function useCreateTaskMutation(projectId: string) {
   })
 }
 
+// useUpdateTaskMutation performs optimistic detail/list updates and relies on
+// backend version checks to reject stale writes.
 export function useUpdateTaskMutation() {
   const queryClient = useQueryClient()
 
@@ -288,6 +304,8 @@ export function useUpdateTaskMutation() {
   })
 }
 
+// useAssignTaskMutation keeps assignee-filtered lists consistent while the
+// network request is pending.
 export function useAssignTaskMutation() {
   const queryClient = useQueryClient()
 
@@ -313,6 +331,7 @@ export function useAssignTaskMutation() {
   })
 }
 
+// useChangeTaskStatusMutation powers drag/drop status changes on the board.
 export function useChangeTaskStatusMutation() {
   const queryClient = useQueryClient()
 

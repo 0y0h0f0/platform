@@ -4,6 +4,8 @@ import { createMockMembers } from '../fixtures/members'
 import { createMockOperationLogs } from '../fixtures/operationLogs'
 import { createMockProjects } from '../fixtures/projects'
 
+// projectMockState is intentionally mutable so MSW handlers can model a running
+// backend during component and e2e tests.
 export const projectMockState = {
   members: createMockMembers(),
   nextLogNumber: 100,
@@ -13,6 +15,7 @@ export const projectMockState = {
   projects: createMockProjects(),
 }
 
+// resetProjectMockState restores deterministic fixtures between tests.
 export function resetProjectMockState() {
   projectMockState.members = createMockMembers()
   projectMockState.nextLogNumber = 100
@@ -52,6 +55,8 @@ export function removeProjectMember(projectId: string, userId: string) {
   return member
 }
 
+// appendOperationLog enriches a raw audit event with user display fields just
+// like the real gateway enrichment path.
 export function appendOperationLog(
   log: Omit<OperationLog, 'avatar_url' | 'id' | 'nickname' | 'username'> & { id?: string },
 ) {

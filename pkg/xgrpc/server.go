@@ -7,11 +7,13 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
+// Server bundles a gRPC server with its health service.
 type Server struct {
 	GRPC   *grpc.Server
 	Health *health.Server
 }
 
+// NewServer registers health checks and optional reflection on a gRPC server.
 func NewServer(srv *grpc.Server, enableReflection bool) *Server {
 	healthServer := health.NewServer()
 	grpc_health_v1.RegisterHealthServer(srv, healthServer)

@@ -8,6 +8,7 @@ import (
 	"strings"
 )
 
+// EncodeCursor serializes cursor fields as URL-safe base64 JSON.
 func EncodeCursor(fields map[string]any) (string, error) {
 	if len(fields) == 0 {
 		return "", nil
@@ -19,6 +20,7 @@ func EncodeCursor(fields map[string]any) (string, error) {
 	return base64.URLEncoding.EncodeToString(b), nil
 }
 
+// DecodeCursor restores cursor fields produced by EncodeCursor.
 func DecodeCursor(cursor string) (map[string]any, error) {
 	if cursor == "" {
 		return nil, nil
@@ -34,6 +36,8 @@ func DecodeCursor(cursor string) (map[string]any, error) {
 	return fields, nil
 }
 
+// ComputeFilterHash returns a short stable hash used to bind cursors to the
+// filter parameters that produced them.
 func ComputeFilterHash(params ...string) string {
 	h := sha256.New()
 	h.Write([]byte(strings.Join(params, "|")))

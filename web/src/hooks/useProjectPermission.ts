@@ -3,6 +3,7 @@ import { useMemo } from 'react'
 import type { Project } from '@/api/types'
 import { ProjectStatus, Role, type Role as RoleValue } from '@/utils/constants'
 
+// ProjectPermission exposes project-level capabilities to settings components.
 export interface ProjectPermission {
   canAddMember: boolean
   canArchive: boolean
@@ -14,6 +15,7 @@ export interface ProjectPermission {
   canUnarchive: boolean
 }
 
+// getProjectPermission mirrors backend role and archived-project rules.
 export function getProjectPermission(
   project: Project | null | undefined,
   role: RoleValue | null | undefined,
@@ -35,6 +37,7 @@ export function getProjectPermission(
   }
 }
 
+// useProjectPermission memoizes the pure permission calculation for React views.
 export function useProjectPermission(
   project: Project | null | undefined,
   role: RoleValue | null | undefined,

@@ -8,19 +8,24 @@ import (
 	"github.com/google/uuid"
 )
 
+// Manager signs and validates JWT access tokens with a shared HMAC secret.
 type Manager struct {
 	secret []byte
 }
 
+// Claims extends registered JWT claims with the username needed by gateways and
+// downstream services.
 type Claims struct {
 	jwtlib.RegisteredClaims
 	Username string `json:"username"`
 }
 
+// NewManager creates a JWT manager for the provided shared secret.
 func NewManager(secret string) *Manager {
 	return &Manager{secret: []byte(secret)}
 }
 
+// Generate signs a token and returns its JTI so logout can blacklist the token.
 func (m *Manager) Generate(userID, username string, ttl time.Duration) (token string, jti string, err error) {
 	jti = uuid.NewString()
 	now := time.Now()
@@ -37,6 +42,7 @@ func (m *Manager) Generate(userID, username string, ttl time.Duration) (token st
 	return
 }
 
+// Validate parses a token, checks the HMAC signing method and returns claims.
 func (m *Manager) Validate(tokenString string) (*Claims, error) {
 	token, err := jwtlib.ParseWithClaims(tokenString, &Claims{}, func(t *jwtlib.Token) (any, error) {
 		if _, ok := t.Method.(*jwtlib.SigningMethodHMAC); !ok {

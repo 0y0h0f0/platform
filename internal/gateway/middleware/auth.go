@@ -12,6 +12,8 @@ import (
 	"task-platform/pkg/xjwt"
 )
 
+// Auth validates bearer tokens, checks logout blacklists and propagates identity
+// into both Gin and request contexts for handlers and RPC clients.
 func Auth(jwtManager *xjwt.Manager, rdb *redis.Client, publicPaths []string) gin.HandlerFunc {
 	publicSet := make(map[string]bool, len(publicPaths))
 	for _, p := range publicPaths {
@@ -40,6 +42,8 @@ func Auth(jwtManager *xjwt.Manager, rdb *redis.Client, publicPaths []string) gin
 		}
 
 		if rdb != nil {
+			// Logout stores the JWT ID in Redis; a hit means the token was revoked
+			// before its natural expiration.
 			blacklistKey := "blacklist:" + claims.ID
 			exists, err := rdb.Exists(c.Request.Context(), blacklistKey).Result()
 			if err != nil {
