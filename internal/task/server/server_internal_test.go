@@ -13,6 +13,8 @@ import (
 
 	userv1 "task-platform/gen/go/user/v1"
 	taskservice "task-platform/internal/task/service"
+	"task-platform/pkg/xconfig"
+	"task-platform/pkg/xgrpc"
 )
 
 type echoUserServer struct {
@@ -35,57 +37,57 @@ func (s *notFoundUserServer) GetUser(_ context.Context, _ *userv1.GetUserRequest
 
 func TestSingleValue(t *testing.T) {
 	md := metadata.Pairs("x-key", "val1", "x-key", "val2")
-	if v := singleValue(md, "x-key"); v != "val1" {
+	if v := xgrpc.SingleValue(md, "x-key"); v != "val1" {
 		t.Errorf("singleValue = %s, want val1", v)
 	}
 }
 
 func TestSingleValue_Empty(t *testing.T) {
-	if v := singleValue(metadata.MD{}, "x-key"); v != "" {
+	if v := xgrpc.SingleValue(metadata.MD{}, "x-key"); v != "" {
 		t.Errorf("expected empty, got %s", v)
 	}
 }
 
 func TestSingleValue_MissingKey(t *testing.T) {
 	md := metadata.Pairs("x-other", "val")
-	if v := singleValue(md, "x-key"); v != "" {
+	if v := xgrpc.SingleValue(md, "x-key"); v != "" {
 		t.Errorf("expected empty, got %s", v)
 	}
 }
 
 func TestValidateSecret_Success(t *testing.T) {
-	if err := validateSecret("TEST", "valid-secret-at-least-16", 16); err != nil {
+	if err := xconfig.ValidateSecret("TEST", "valid-secret-at-least-16", 16); err != nil {
 		t.Errorf("unexpected error: %v", err)
 	}
 }
 
 func TestValidateSecret_Empty(t *testing.T) {
-	if err := validateSecret("TEST", "", 16); err == nil {
+	if err := xconfig.ValidateSecret("TEST", "", 16); err == nil {
 		t.Error("expected error for empty secret")
 	}
 }
 
 func TestValidateSecret_Placeholder(t *testing.T) {
-	if err := validateSecret("TEST", "replace-with-a-long-random-internal-token", 16); err == nil {
+	if err := xconfig.ValidateSecret("TEST", "replace-with-a-long-random-internal-token", 16); err == nil {
 		t.Error("expected error for placeholder")
 	}
 }
 
 func TestValidateSecret_TooShort(t *testing.T) {
-	if err := validateSecret("TEST", "short", 8); err == nil {
+	if err := xconfig.ValidateSecret("TEST", "short", 8); err == nil {
 		t.Error("expected error for short secret")
 	}
 }
 
 func TestEnvOrDefault_WithValue(t *testing.T) {
 	t.Setenv("TEST_ENV_12345", "custom")
-	if v := envOrDefault("TEST_ENV_12345", "default"); v != "custom" {
+	if v := xconfig.EnvOrDefault("TEST_ENV_12345", "default"); v != "custom" {
 		t.Errorf("envOrDefault = %s, want custom", v)
 	}
 }
 
 func TestEnvOrDefault_Default(t *testing.T) {
-	if v := envOrDefault("NONEXISTENT_ENV_VAR_XYZ", "fallback"); v != "fallback" {
+	if v := xconfig.EnvOrDefault("NONEXISTENT_ENV_VAR_XYZ", "fallback"); v != "fallback" {
 		t.Errorf("envOrDefault = %s, want fallback", v)
 	}
 }
@@ -191,7 +193,7 @@ func TestAuthInterceptor_UserIDPropagatedToContext(t *testing.T) {
 
 func TestLoggingInterceptor_Success(t *testing.T) {
 	logger := zap.NewNop()
-	interceptor := loggingInterceptor(logger)
+	interceptor := xgrpc.LoggingInterceptor(logger)
 	handler := func(_ context.Context, _ any) (any, error) { return "ok", nil }
 
 	md := metadata.Pairs("x-request-id", "req-123")
@@ -208,7 +210,7 @@ func TestLoggingInterceptor_Success(t *testing.T) {
 
 func TestLoggingInterceptor_Error(t *testing.T) {
 	logger := zap.NewNop()
-	interceptor := loggingInterceptor(logger)
+	interceptor := xgrpc.LoggingInterceptor(logger)
 	handler := func(_ context.Context, _ any) (any, error) {
 		return nil, status.Error(codes.Internal, "something went wrong")
 	}
@@ -224,7 +226,7 @@ func TestLoggingInterceptor_Error(t *testing.T) {
 
 func TestLoggingInterceptor_NoMetadata(t *testing.T) {
 	logger := zap.NewNop()
-	interceptor := loggingInterceptor(logger)
+	interceptor := xgrpc.LoggingInterceptor(logger)
 	handler := func(_ context.Context, _ any) (any, error) { return "no-md", nil }
 
 	resp, err := interceptor(context.Background(), nil, &grpc.UnaryServerInfo{FullMethod: "/test/NoMD"}, handler)

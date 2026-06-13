@@ -12,6 +12,7 @@ import (
 	"task-platform/internal/gateway/handler"
 	"task-platform/internal/gateway/middleware"
 	"task-platform/internal/gateway/rpc"
+	"task-platform/pkg/xconfig"
 	"task-platform/pkg/xerr"
 	"task-platform/pkg/xhttp"
 	"task-platform/pkg/xjwt"
@@ -29,9 +30,9 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		UserServiceAddr: envOrDefault("USER_SERVICE_ADDR", "127.0.0.1:9091"),
-		TaskServiceAddr: envOrDefault("TASK_SERVICE_ADDR", "127.0.0.1:9092"),
-		RedisAddr:       fmt.Sprintf("%s:%s", envOrDefault("REDIS_HOST", "127.0.0.1"), envOrDefault("REDIS_PORT", "6380")),
+		UserServiceAddr: xconfig.EnvOrDefault("USER_SERVICE_ADDR", "127.0.0.1:9091"),
+		TaskServiceAddr: xconfig.EnvOrDefault("TASK_SERVICE_ADDR", "127.0.0.1:9092"),
+		RedisAddr:       fmt.Sprintf("%s:%s", xconfig.EnvOrDefault("REDIS_HOST", "127.0.0.1"), xconfig.EnvOrDefault("REDIS_PORT", "6380")),
 		RedisPassword:   os.Getenv("REDIS_PASSWORD"),
 		JWTSecret:       os.Getenv("JWT_SECRET"),
 		InternalToken:   os.Getenv("INTERNAL_TOKEN"),
@@ -39,10 +40,10 @@ func DefaultConfig() Config {
 }
 
 func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Config) (*gin.Engine, func() error, error) {
-	if err := validateSecret("JWT_SECRET", cfg.JWTSecret, 32); err != nil {
+	if err := xconfig.ValidateSecret("JWT_SECRET", cfg.JWTSecret, 32); err != nil {
 		return nil, nil, err
 	}
-	if err := validateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
+	if err := xconfig.ValidateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
 		return nil, nil, err
 	}
 
@@ -63,6 +64,8 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	publicPaths := []string{
 		"/api/v1/auth/register",
 		"/api/v1/auth/login",
+		"/healthz",
+		"/readyz",
 	}
 
 	engine.Use(middleware.MaxBodySize(1 << 20)) // 1 MB
@@ -128,6 +131,9 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	cleanup := func() error {
 		cerr := clients.Close()
 		rerr := rdb.Close()
+		if cerr != nil && rerr != nil {
+			return fmt.Errorf("clients: %w; redis: %w", cerr, rerr)
+		}
 		if cerr != nil {
 			return cerr
 		}
@@ -135,24 +141,4 @@ func NewEngine(service string, ready *atomic.Bool, logger *zap.Logger, cfg Confi
 	}
 
 	return engine, cleanup, nil
-}
-
-func validateSecret(name, value string, minLen int) error {
-	if value == "" {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+" is required")
-	}
-	if value == "replace-with-a-long-random-secret" || value == "replace-with-a-long-random-internal-token" {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+" must be changed from the default placeholder")
-	}
-	if len(value) < minLen {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+fmt.Sprintf(" must be at least %d characters", minLen))
-	}
-	return nil
-}
-
-func envOrDefault(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
 }

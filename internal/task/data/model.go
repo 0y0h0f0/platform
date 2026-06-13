@@ -1,6 +1,7 @@
 package data
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -55,9 +56,20 @@ const (
 )
 
 // IsValidProjectName enforces the storage/API length limit for project names.
+// Whitespace-only names are rejected.
 func IsValidProjectName(name string) bool {
-	l := len(name)
-	return l >= 1 && l <= 100
+	trimmed := strings.TrimSpace(name)
+	return len(trimmed) >= 1 && len(trimmed) <= 100
+}
+
+// IsValidContent checks that a free-text field does not exceed the practical limit.
+func IsValidContent(content string) bool {
+	return len(content) <= 10000
+}
+
+// IsValidPriority reports whether p is one of the defined priority constants.
+func IsValidPriority(p int32) bool {
+	return p >= PriorityLow && p <= PriorityUrgent
 }
 
 // Task is the persisted task record. DueTime is stored as a string to match the
@@ -99,9 +111,10 @@ const (
 )
 
 // IsValidTaskTitle enforces the storage/API length limit for task titles.
+// Whitespace-only titles are rejected.
 func IsValidTaskTitle(title string) bool {
-	l := len(title)
-	return l >= 1 && l <= 200
+	trimmed := strings.TrimSpace(title)
+	return len(trimmed) >= 1 && len(trimmed) <= 200
 }
 
 // TaskComment stores append-only task discussion entries.

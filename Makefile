@@ -22,7 +22,7 @@ else
 LINT := $(LINT_BIN)
 endif
 
-.PHONY: proto proto-lint run/% test lint coverage migrate up down loadtest loadtest-baseline loadtest-stress loadtest-endurance loadtest-throughput
+.PHONY: proto proto-lint run/% test lint coverage migrate up down k8s-deploy k8s-deploy-dev k8s-deploy-prod k8s-build k8s-dry-run loadtest loadtest-baseline loadtest-stress loadtest-endurance loadtest-throughput
 
 proto:
 	$(BUF) generate
@@ -77,3 +77,27 @@ seed-users:
 	@if [ -f .env ]; then set -a; source .env; set +a; fi; \
 	$(GO) run ./cmd/seed-users
 
+
+
+# ---------- Kubernetes ----------
+k8s-build:
+	@echo "Building all Docker images..."
+	docker build --build-arg SERVICE=api-gateway -t task-platform/api-gateway:latest .
+	docker build --build-arg SERVICE=user-service -t task-platform/user-service:latest .
+	docker build --build-arg SERVICE=task-service -t task-platform/task-service:latest .
+	docker build -t task-platform/web:latest web/
+	@echo "All images built."
+
+k8s-deploy: k8s-deploy-dev
+
+k8s-deploy-dev:
+	./deploy/k8s/deploy-all.sh dev
+
+k8s-deploy-prod:
+	./deploy/k8s/deploy-all.sh prod
+
+k8s-deploy-dev-build:
+	./deploy/k8s/deploy-all.sh dev --build
+
+k8s-dry-run:
+	./deploy/k8s/deploy-all.sh dev --dry-run

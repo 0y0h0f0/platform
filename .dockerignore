@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# CI/CD
+.github
+
+# Deploy (except configs)
+deploy/docker-compose.yml
+deploy/prometheus.yml
+deploy/grafana
+
+# Documentation
+*.md
+docs
+
+# IDE
+.idea
+.vscode
+*.swp
+*.swo
+
+# Test
+test
+coverage.out
+*.test
+
+# Build artifacts
+/bin
+/dist
+/tmp
+
+# Environment
+.env
+.env.*
+!.env.example

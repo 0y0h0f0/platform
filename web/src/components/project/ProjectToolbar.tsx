@@ -48,7 +48,10 @@ export function ProjectToolbar({
         allowClear
         className="project-toolbar-select"
         onChange={(value) => onFiltersChange({ ...filters, assigneeId: value })}
-        options={members.map((member) => ({ label: member.user_id, value: member.user_id }))}
+        options={members.map((member) => ({
+          label: member.username || member.nickname || member.user_id,
+          value: member.user_id,
+        }))}
         placeholder="负责人"
         value={filters.assigneeId}
       />

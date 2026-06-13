@@ -38,7 +38,8 @@ type config struct {
 
 func main() {
 	if err := run(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -114,9 +115,6 @@ func run() error {
 
 	logger.Info("shutting down")
 
-	serverBundle.Shutdown()
-	logger.Info("task server shut down")
-
 	if err := adminServer.Shutdown(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown admin http: %w", err)
 	}
@@ -132,6 +130,9 @@ func run() error {
 	case <-shutdownCtx.Done():
 		serverBundle.GRPC.Stop()
 	}
+
+	serverBundle.Shutdown()
+	logger.Info("task server shut down")
 
 	if err := shutdownTrace(shutdownCtx); err != nil {
 		return fmt.Errorf("shutdown trace: %w", err)
@@ -149,7 +150,7 @@ func loadConfig(service string) (config, error) {
 	v.SetDefault("env", defaultEnv())
 	v.SetDefault("grpc_addr", ":9092")
 	v.SetDefault("admin_addr", ":8082")
-	v.SetDefault("reflection_enabled", true)
+	v.SetDefault("reflection_enabled", false)
 	v.SetDefault("shutdown_timeout_seconds", 10)
 	v.SetDefault("read_header_timeout_seconds", 5)
 	v.SetDefault("read_timeout_seconds", 10)
@@ -185,5 +186,7 @@ func defaultEnv() string {
 }
 
 func syncLogger(logger *zap.Logger) {
-	_ = logger.Sync()
+	if err := logger.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
+	}
 }

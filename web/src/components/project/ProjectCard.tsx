@@ -36,7 +36,7 @@ export function ProjectCard({ project }: { project: Project }) {
       </Paragraph>
       <div className="project-card-meta">
         <span>Owner</span>
-        <Text code>{project.owner_id}</Text>
+        <Text code>{project.owner_username || project.owner_nickname || project.owner_id}</Text>
         <span>Version</span>
         <Text>{project.version}</Text>
       </div>

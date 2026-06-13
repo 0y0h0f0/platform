@@ -219,9 +219,19 @@ async function applyOptimisticTask(
   queryClient: QueryClient,
   task: Task,
 ): Promise<{ detail?: TaskData; lists: TaskListSnapshot }> {
-  // Cancel in-flight fetches before writing optimistic state; late responses are
-  // reconciled by the final invalidation.
-  await queryClient.cancelQueries({ queryKey: taskQueryKeys.all })
+  // Cancel only the list and detail queries related to this task, not ALL task
+  // queries across the app. Late responses are reconciled by final invalidation.
+  await queryClient.cancelQueries({
+    predicate: (query) => {
+      const key = query.queryKey as unknown[]
+      if (!Array.isArray(key) || key[0] !== 'tasks') return false
+      // List queries have a filter-object as the second element.
+      if (key.length >= 2 && typeof key[1] === 'object') return true
+      // Cancel this task's detail query.
+      if (key.length === 2 && key[1] === task.id) return true
+      return false
+    },
+  })
 
   const snapshot = {
     detail: queryClient.getQueryData<TaskData>(taskQueryKeys.detail(task.id)),
@@ -316,6 +326,9 @@ export function useAssignTaskMutation() {
       applyOptimisticTask(queryClient, {
         ...task,
         assignee_id: assigneeId,
+        assignee_username: undefined,
+        assignee_nickname: undefined,
+        assignee_avatar_url: undefined,
         version: task.version + 1,
       }),
     onError: (_error, variables, snapshot) => {

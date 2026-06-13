@@ -1,10 +1,10 @@
-# Task Platform
+# 团队任务协作平台
 
-A campus-recruitment backend scaffold — team task collaboration platform built with Go microservices.
+面向校招面试的 Go 微服务后端项目 —— 完整的团队任务协作平台。
 
-**Status:** All phases complete. Services compile, tests pass (80%+ coverage), metrics + traces + Grafana dashboard in place, 1k QPS verified.
+**状态：** 全部阶段完成。服务编译通过，测试通过（80%+ 覆盖率），Prometheus + Jaeger + Loki + Grafana 可观测性体系完备，支持 Docker Compose 与 Kubernetes 部署，已验证 1000 QPS。
 
-## Architecture
+## 架构
 
 ```
              +-----------------------+
@@ -15,18 +15,18 @@ A campus-recruitment backend scaffold — team task collaboration platform built
                          |
                          v
              +-----------------------+
-             |      api-gateway      |
+             |      API 网关          |
              |         Gin           |
-             | auth / bind / log     |
-             | request_id / recovery |
+             | 鉴权 / 绑定 / 日志     |
+             | request_id / 恢复     |
              +-----------+-----------+
                          |
-                     gRPC Client
+                     gRPC 客户端
                +---------+---------+
                |                   |
                v                   v
       +----------------+   +----------------+
-      |  user-service  |   |  task-service  |
+      |   用户服务      |   |   任务服务      |
       |      gRPC      |   |      gRPC      |
       +--------+-------+   +--------+-------+
                |                    |
@@ -34,7 +34,7 @@ A campus-recruitment backend scaffold — team task collaboration platform built
                v                    v
         +-------------+      +-------------+
         | PostgreSQL  |      | PostgreSQL  |
-        | user schema |      | task schema |
+        | user 模式   |      | task 模式   |
         +------+------+      +------+------+
                \                    /
                 \                  /
@@ -43,226 +43,303 @@ A campus-recruitment backend scaffold — team task collaboration platform built
                         Redis
 ```
 
-**Middleware chain:** `Recovery → MaxBodySize(1MB) → SecurityHeaders → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
+**中间件链：** `Recovery → MaxBodySize(1MB) → SecurityHeaders → RequestID → HTTPTrace → HTTPMetrics → AccessLog → CORS → RateLimit(IP) → Auth(JWT) → RateLimit(user) → Handler`
 
-**Service layer:** `handler(HTTP) → service(gRPC impl) → biz(domain) → data(repository/GORM)`
+**服务分层：** `handler(HTTP) → service(gRPC 实现) → biz(领域逻辑) → data(仓库/GORM)`
 
-## Features
+**可观测性：** Prometheus（指标）+ Jaeger（链路追踪）+ Loki（日志聚合）→ Grafana（统一看板）
 
-### Authentication & Users
-- Register (username/email/password with validation, weak-password blacklist)
-- Login (username or email + password, JWT HS256, 2h TTL)
-- Logout (Redis token blacklist)
-- Get current user, batch get users (Redis-cached, TTL 5 min)
+## 功能概览
 
-### Projects
-- CRUD with optimistic locking (`version` column)
-- Archive / unarchive (read-only mode for archived projects)
-- Transfer ownership (atomic: updates both `projects.owner_id` and `project_members.role`)
-- Member management: add, remove, change role, leave, list
-- Role-based permissions: owner / admin / member
+### 用户认证
+- 注册（用户名/邮箱/密码校验，弱密码黑名单）
+- 登录（用户名或邮箱 + 密码，JWT HS256，2 小时过期）
+- 登出（Redis 令牌黑名单）
+- 当前用户查询、批量用户查询（Redis 缓存，TTL 5 分钟）
 
-### Tasks
-- CRUD with optimistic locking
-- Cursor-based pagination (base64url-encoded cursor with filter hash validation)
-- Task assignment with user existence and membership validation
-- State machine: `todo ↔ doing ↔ done`, `todo → cancelled`, `cancelled → todo`
-- Status and assignee updated through dedicated endpoints (`AssignTask`, `ChangeTaskStatus`)
+### 项目管理
+- CRUD，乐观锁并发控制（`version` 列）
+- 归档 / 取消归档（归档后项目全员只读）
+- 所有权转让（事务原子更新 `projects.owner_id` 和 `project_members.role`）
+- 成员管理：添加、移除、修改角色、退出、列表
+- 三级角色权限：Owner / Admin / Member
 
-### Comments & Operation Logs
-- Create / delete / list task comments
-- Operation logs for projects and tasks
-- Async log writer: buffered channel (capacity 1024), configurable workers (default 1, max 16), batch write (size 64, flush 100ms), graceful degradation on channel full
+### 任务管理
+- CRUD，乐观锁并发控制
+- 游标分页（base64url 编码，内含 `filter_hash` 防跨筛选器不一致）
+- 任务指派（校验用户存在性与项目成员身份）
+- 状态机：`todo ↔ doing ↔ done`，`todo → cancelled`，`cancelled → todo`
+- 状态与指派人通过专用端点（`AssignTask`、`ChangeTaskStatus`）更新，`UpdateTask` 不接受这两个字段
 
-### Engineering
-- **Unified error codes:** 12 error codes mapped from gRPC status to HTTP responses via `{ code, message, request_id, data? }` envelope
-- **Structured logging:** Zap JSON with `request_id` and `method`/`latency` fields; gRPC unary logging interceptors on both services
-- **Redis caching:** Cache-aside for user info and project details with write invalidation (TTL 5 min) plus singleflight miss coalescing
-- **Rate limiting:** Redis token bucket (Lua script), separate keys for auth (5/s, burst 10) and regular paths (60/s, burst 100), plus per-user rate limiting (100/s, burst 200)
-- **Idempotency:** `Idempotency-Key` header on all write endpoints, Redis `SETNX` with 24h TTL, key freed on error for retry, pending duplicates return 409/`ABORTED`
-- **Timeouts:** HTTP read/write/idle timeouts and internal gRPC default deadlines are configurable
-- **Multi-env config:** YAML configs for local/dev/docker with Viper + env var override
-- **Soft delete:** `users`, `projects`, `tasks` use GORM `DeletedAt`; `comments` and `members` are physically deleted
-- **Integration tests:** 70+ tests against real PostgreSQL 16 and Redis 7 via testcontainers-go
+### 评论与操作日志
+- 任务评论的创建 / 删除 / 列表
+- 项目与任务维度的操作日志查询
+- 异步日志写入器：缓冲 channel（容量 1024），worker 数可配置（默认 1，最大 16），批量写入（batch 64，flush 100ms），channel 满时优雅降级
 
-## Quick Start
+### 工程基础设施
+- **统一错误码：** 12 个错误码，gRPC status 映射为 HTTP 统一信封 `{ code, message, request_id, data? }`
+- **结构化日志：** Zap JSON 格式，携带 `request_id` 与 `method`/`latency` 字段；两个业务服务均包含 gRPC 一元拦截器日志
+- **日志聚合：** Loki + Promtail 实现集中式日志查询与存储（应用代码零改动）
+- **Redis 缓存：** Cache-aside 模式缓存用户信息与项目详情，写入时主动失效（TTL 5 分钟），singleflight 合并并发缺失请求
+- **限流：** Redis 令牌桶（Lua 脚本），认证接口 5/s（突发 10），常规接口 60/s（突发 100），用户级 100/s（突发 200）
+- **幂等性：** 所有写端点支持 `Idempotency-Key` 请求头，Redis `SETNX` 实现，24h TTL；请求失败时释放 key 允许重试；处理中的重复请求返回 409/`ABORTED`
+- **超时控制：** HTTP 读写/空闲超时可配置，内部 gRPC 默认 deadline 可配置
+- **多环境配置：** Viper YAML 配置 + 环境变量覆盖，local/dev/docker 三套环境
+- **软删除：** `users`、`projects`、`tasks` 使用 GORM `DeletedAt`；`comments` 和 `members` 为物理删除
+- **集成测试：** 70+ 测试用例，通过 testcontainers-go 对接真实 PostgreSQL 16 与 Redis 7
 
-### Prerequisites
+## 快速开始
+
+### 环境要求
 - Go 1.26+
-- Docker (for PostgreSQL, Redis, and testcontainers)
+- Docker（用于 PostgreSQL、Redis 以及 testcontainers）
 
-### Setup
+### 初始化
 
 ```bash
 cp .env.example .env
-make up          # Start PostgreSQL + Redis
-make migrate     # Run database migrations
+make up          # 启动 PostgreSQL + Redis + Prometheus + Jaeger + Loki + Grafana
+make migrate     # 执行数据库迁移
 ```
 
-### Run Services
+### 启动服务
 
 ```bash
 make run/api-gateway     # HTTP :8080
-make run/user-service    # gRPC :9091, admin HTTP :8081
-make run/task-service    # gRPC :9092, admin HTTP :8082
+make run/user-service    # gRPC :9091，管理 HTTP :8081
+make run/task-service    # gRPC :9092，管理 HTTP :8082
 ```
 
-Or run all three in separate terminals.
+或在三个终端中分别启动。
 
+### 可观测性
 
-### Frontend
+| 组件 | 地址 | 用途 |
+|-----------|---------|---------|
+| Grafana | http://127.0.0.1:3000 | 统一看板（Prometheus + Jaeger + Loki） |
+| Jaeger | http://127.0.0.1:16686 | 分布式链路追踪 |
+| Prometheus | http://127.0.0.1:9090 | 指标查询 |
+| Loki | http://127.0.0.1:3100 | 日志聚合（通过 Grafana 查询） |
+
+### Kubernetes 部署
+
+**前置条件：** Kubernetes v1.28+、kubectl 已配置、Docker（如需本地构建）。
+
+**构建镜像：**
+
+```bash
+docker build --build-arg SERVICE=api-gateway -t task-platform/api-gateway:latest .
+docker build --build-arg SERVICE=user-service -t task-platform/user-service:latest .
+docker build --build-arg SERVICE=task-service -t task-platform/task-service:latest .
+docker build -t task-platform/web:latest web/
+```
+
+**一键部署（推荐）：**
+
+`deploy/k8s/deploy-all.sh` 提供完整部署流程：
+
+```bash
+./deploy/k8s/deploy-all.sh dev              # 部署开发环境（单副本）
+./deploy/k8s/deploy-all.sh dev --build      # 构建镜像 + 部署
+./deploy/k8s/deploy-all.sh dev --skip-infra # 使用外部 PG/Redis，仅部署应用与可观测性
+./deploy/k8s/deploy-all.sh dev --dry-run    # 预览生成的 YAML，不实际部署
+./deploy/k8s/deploy-all.sh prod             # 部署生产环境（3 副本，更高资源限制）
+```
+
+**直接使用 kubectl + Kustomize：**
+
+```bash
+kubectl apply -k deploy/k8s/overlays/dev/     # 开发环境
+kubectl apply -k deploy/k8s/overlays/prod/    # 生产环境
+kubectl get pods -n task-platform -w          # 等待 Pod 就绪
+```
+
+**访问服务：**
+
+```bash
+kubectl port-forward svc/web 8080:80 -n task-platform        # 前端 SPA → http://localhost:8080
+kubectl port-forward svc/grafana 3000:3000 -n task-platform   # Grafana → http://localhost:3000
+kubectl port-forward svc/jaeger 16686:16686 -n task-platform  # Jaeger → http://localhost:16686
+```
+
+如果使用 minikube：`minikube service web -n task-platform`
+
+**dev vs prod overlay 差异：**
+
+| 项目 | dev | prod |
+|------|-----|------|
+| 副本数 | 1 | 3 |
+| imagePullPolicy | Never（本地镜像） | 默认 |
+| CPU requests | 默认 | 200m |
+| CPU limits | 默认 | 1000m |
+
+**清理：** `kubectl delete -k deploy/k8s/overlays/dev/` 或 `kubectl delete namespace task-platform`
+
+K8s 清单位于 `deploy/k8s/`，部署了 api-gateway、user-service、task-service、web、PostgreSQL、Redis、Prometheus、Jaeger、Grafana、Loki、Promtail 全套组件。详见 `docs/deployment-guide.md`。
+
+### 前端
 
 ```bash
 cd web
 npm install
-npm run dev       # Proxy /api to the Go gateway
-npm run dev:mock  # Standalone MSW mode, no backend required
-npm run e2e       # Playwright E2E against MSW mode
+npm run dev       # 代理 /api 到 Go 网关
+npm run dev:mock  # 独立 MSW 模式，无需后端
+npm run e2e       # Playwright E2E 测试（MSW 模式）
 ```
 
-See `web/README.md` for frontend quality checks and bundle stats generation.
+详见 `web/README.md`，包含前端质量检查与构建产物分析。
 
-### Test
+### 测试
 
 ```bash
-make test                              # All unit tests
-go test -tags=integration ./test/integration/ -v   # Integration tests (requires Docker)
-make coverage                          # Coverage report (≥80% threshold)
+make test                              # 所有单元测试
+go test -tags=integration ./test/integration/ -v   # 集成测试（需要 Docker）
+make coverage                          # 覆盖率报告（≥80% 阈值）
 make lint                              # golangci-lint
 ```
 
-## API Reference
+## API 参考
 
-All endpoints return the envelope: `{ "code": "OK", "message": "...", "request_id": "...", "data": {...} }`
+所有端点返回统一信封：`{ "code": "OK", "message": "...", "request_id": "...", "data": {...} }`
 
-### Auth — `/api/v1/auth`
+### 认证 — `/api/v1/auth`
 
-| Method | Path | Auth | Description |
+| 方法 | 路径 | 认证 | 说明 |
 |--------|------|------|-------------|
-| POST | `/auth/register` | No | Register (username, email, password) |
-| POST | `/auth/login` | No | Login (account, password) |
-| POST | `/auth/logout` | Bearer | Logout (blacklists current token) |
+| POST | `/auth/register` | 无 | 注册（username, email, password） |
+| POST | `/auth/login` | 无 | 登录（account, password） |
+| POST | `/auth/logout` | Bearer | 登出（将当前 token 加入黑名单） |
 
-### Users — `/api/v1/users`
+### 用户 — `/api/v1/users`
 
-| Method | Path | Auth | Description |
+| 方法 | 路径 | 认证 | 说明 |
 |--------|------|------|-------------|
-| GET | `/users/me` | Bearer | Get current user |
+| GET | `/users/me` | Bearer | 获取当前用户信息 |
 
-### Projects — `/api/v1/projects`
+### 项目 — `/api/v1/projects`
 
-| Method | Path | Auth | Description |
+| 方法 | 路径 | 认证 | 说明 |
 |--------|------|------|-------------|
-| POST | `/projects` | Bearer | Create project |
-| GET | `/projects` | Bearer | List my projects (offset pagination, `?limit=20&offset=0`) |
-| GET | `/projects/:id` | Bearer | Get project detail |
-| PUT | `/projects/:id` | Bearer | Update project (requires `version`) |
-| POST | `/projects/:id/archive` | Bearer | Archive project (owner only) |
-| POST | `/projects/:id/unarchive` | Bearer | Unarchive project (owner only) |
-| POST | `/projects/:id/transfer` | Bearer | Transfer ownership (`target_user_id`) |
-| POST | `/projects/:id/members` | Bearer | Add member (`user_id`, `role`) |
-| GET | `/projects/:id/members` | Bearer | List members |
-| PUT | `/projects/:id/members/:userId` | Bearer | Update member role |
-| DELETE | `/projects/:id/members/:userId` | Bearer | Remove member |
-| POST | `/projects/:id/members/me/leave` | Bearer | Leave project |
-| GET | `/projects/:id/operation-logs` | Bearer | List project operation logs |
+| POST | `/projects` | Bearer | 创建项目 |
+| GET | `/projects` | Bearer | 我的项目列表（偏移分页，`?limit=20&offset=0`） |
+| GET | `/projects/:id` | Bearer | 获取项目详情 |
+| PUT | `/projects/:id` | Bearer | 更新项目（需要 `version`） |
+| POST | `/projects/:id/archive` | Bearer | 归档项目（仅 Owner） |
+| POST | `/projects/:id/unarchive` | Bearer | 取消归档（仅 Owner） |
+| POST | `/projects/:id/transfer` | Bearer | 转让所有权（`target_user_id`） |
+| POST | `/projects/:id/members` | Bearer | 添加成员（`user_id`、`role`） |
+| GET | `/projects/:id/members` | Bearer | 成员列表 |
+| PUT | `/projects/:id/members/:userId` | Bearer | 修改成员角色 |
+| DELETE | `/projects/:id/members/:userId` | Bearer | 移除成员 |
+| POST | `/projects/:id/members/me/leave` | Bearer | 退出项目 |
+| GET | `/projects/:id/operation-logs` | Bearer | 项目操作日志 |
 
-### Tasks — `/api/v1/tasks`
+### 任务 — `/api/v1/tasks`
 
-| Method | Path | Auth | Description |
+| 方法 | 路径 | 认证 | 说明 |
 |--------|------|------|-------------|
-| POST | `/tasks` | Bearer | Create task (`project_id`, `title`, `content`) |
-| GET | `/tasks` | Bearer | List tasks (cursor pagination, `?project_id=&status=&assignee_id=&keyword=&cursor=&limit=`) |
-| GET | `/tasks/:id` | Bearer | Get task detail |
-| PUT | `/tasks/:id` | Bearer | Update task (requires `version`; status/assignee not accepted) |
-| DELETE | `/tasks/:id` | Bearer | Delete task |
-| POST | `/tasks/:id/assign` | Bearer | Assign task (`assignee_id`) |
-| POST | `/tasks/:id/status` | Bearer | Change status (`status`, `version`) |
-| POST | `/tasks/:id/comments` | Bearer | Create comment (`content`) |
-| GET | `/tasks/:id/comments` | Bearer | List comments (`?limit=`) |
-| DELETE | `/tasks/:id/comments/:commentId` | Bearer | Delete comment |
-| GET | `/tasks/:id/operation-logs` | Bearer | List task operation logs |
+| POST | `/tasks` | Bearer | 创建任务（`project_id`、`title`、`content`） |
+| GET | `/tasks` | Bearer | 任务列表（游标分页，`?project_id=&status=&assignee_id=&keyword=&cursor=&limit=`） |
+| GET | `/tasks/:id` | Bearer | 获取任务详情 |
+| PUT | `/tasks/:id` | Bearer | 更新任务（需要 `version`；不接受 status/assignee） |
+| DELETE | `/tasks/:id` | Bearer | 删除任务 |
+| POST | `/tasks/:id/assign` | Bearer | 指派任务（`assignee_id`） |
+| POST | `/tasks/:id/status` | Bearer | 变更状态（`status`、`version`） |
+| POST | `/tasks/:id/comments` | Bearer | 创建评论（`content`） |
+| GET | `/tasks/:id/comments` | Bearer | 评论列表（`?limit=`） |
+| DELETE | `/tasks/:id/comments/:commentId` | Bearer | 删除评论 |
+| GET | `/tasks/:id/operation-logs` | Bearer | 任务操作日志 |
 
-## Documentation
+## 文档
 
-- **[Documentation Index](docs/README.md)** — Full Chinese documentation map for architecture, API, configuration, database, development, testing, deployment, observability, and frontend.
-- **[Go Study Guide](study.md)** — Go beginner-oriented learning route through this codebase.
-- **[Project Introduction](docs/project-introduction.md)** — 项目介绍 (Chinese): 完整的项目定位、架构设计、功能清单、技术栈与亮点总结。
-- **[Postman Collection](docs/postman/task-platform.postman_collection.json)** — Import into Postman. Auto-sets token on Register/Login; all endpoints with example bodies and auto-synced version variables.
-- **[Interview Script](docs/interview-script.md)** — 面试讲解稿 (Chinese): architecture rationale, key highlights, challenges & solutions, common follow-up questions.
+- **[文档索引](docs/README.md)** — 完整的中文文档地图：架构、API、配置、数据库、开发、测试、部署、可观测性与前端。
+- **[Go 学习路线](study.md)** — 面向 Go 初学者，按项目代码学习 Go 语法、分层架构、并发、测试与工程化实践。
+- **[项目介绍](docs/project-introduction.md)** — 完整的项目定位、架构设计、功能清单、技术栈与亮点总结。
+- **[Postman 集合](docs/postman/task-platform.postman_collection.json)** — 导入 Postman 即可使用，注册/登录自动设置 token，所有端点附带示例请求体与自动同步的 version 变量。
+- **[面试讲解稿](docs/interview-script.md)** — 架构决策理由、核心亮点、挑战与解决方案、常见追问。
 
-### Pagination
+### 分页
 
-- **Projects:** offset-based (`limit` default 20, max 50)
-- **Tasks:** cursor-based (base64url-encoded JSON: `{created_at, id, filter_hash}`; server rejects mismatched filter hash)
+- **项目：** 偏移分页（`limit` 默认 20，最大 50）
+- **任务：** 游标分页（base64url 编码的 JSON：`{created_at, id, filter_hash}`；服务端校验 filter_hash，不匹配则拒绝）
 
-### Idempotency
+### 幂等性
 
-All write endpoints (`POST`, `PUT`, `DELETE`) accept `Idempotency-Key` header. Duplicate requests with the same key within 24h return the cached response (200 OK) after the first request finishes; duplicates that arrive while the first request is still `pending` return 409/`ABORTED`. Keys are freed on error so clients can retry.
+所有写端点（`POST`、`PUT`、`DELETE`）均支持 `Idempotency-Key` 请求头。24h 内相同 key 的重复请求：首个请求完成后返回缓存响应（200 OK）；首个请求处理中到达的重复请求返回 409/`ABORTED`。请求失败时自动释放 key，允许客户端重试。
 
-## Configuration
+## 配置
 
-Multi-environment configs in `configs/`:
+多环境配置文件位于 `configs/` 目录：
 
-| Env | Directory | Purpose |
+| 环境 | 目录 | 用途 |
 |-----|-----------|---------|
-| local | `configs/local/` | Local development |
-| dev | `configs/dev/` | CI / staging |
-| docker | `configs/docker/` | Docker Compose deployment |
+| local | `configs/local/` | 本地开发 |
+| dev | `configs/dev/` | CI / 预发布 |
+| docker | `configs/docker/` | Docker Compose / Kubernetes 部署 |
 
-Each service has its own YAML file. Config is loaded via Viper with env var override.
+每个服务有独立的 YAML 文件，通过 Viper 加载并支持环境变量覆盖。
 
-### Key Environment Variables
+### 关键环境变量
 
-| Variable | Service | Description |
+| 变量 | 服务 | 说明 |
 |----------|---------|-------------|
-| `JWT_SECRET` | gateway, user | JWT signing key (≥32 chars) |
-| `INTERNAL_TOKEN` | all | Internal RPC auth token (≥16 chars) |
-| `POSTGRES_DSN` | user, task | PostgreSQL connection string |
-| `REDIS_ADDR` | all | Redis address (`host:port`) |
-| `REDIS_PASSWORD` | all | Redis password (optional) |
-| `REDIS_POOL_SIZE` | all | Redis connection pool size (default 100) |
-| `GRPC_CLIENT_TIMEOUT_SECONDS` | gateway, task | Default internal gRPC client deadline (default 2s) |
-| `GRPC_SERVER_TIMEOUT_SECONDS` | user, task | Default gRPC server handler deadline (default 3s) |
-| `LOG_WRITER_WORKERS` | task | Async operation log worker count (default 1, max 16) |
+| `JWT_SECRET` | gateway, user | JWT 签名密钥（≥32 字符） |
+| `INTERNAL_TOKEN` | 全部 | 内部 RPC 认证令牌（≥16 字符） |
+| `POSTGRES_DSN` | user, task | PostgreSQL 连接字符串 |
+| `REDIS_ADDR` | 全部 | Redis 地址（`host:port`） |
+| `REDIS_PASSWORD` | 全部 | Redis 密码（可选） |
+| `REDIS_POOL_SIZE` | 全部 | Redis 连接池大小（默认 100） |
+| `GRPC_CLIENT_TIMEOUT_SECONDS` | gateway, task | 内部 gRPC 客户端默认 deadline（默认 2s） |
+| `GRPC_SERVER_TIMEOUT_SECONDS` | user, task | gRPC 服务端默认 handler deadline（默认 3s） |
+| `LOG_WRITER_WORKERS` | task | 异步操作日志 worker 数（默认 1，最大 16） |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | 全部 | OTLP 链路追踪端点（默认 `127.0.0.1:4317`） |
 
-Default ports: API gateway `:8080`, user-service gRPC `:9091`, task-service gRPC `:9092`, PostgreSQL `:5433`, Redis `:6380`.
+默认端口：API 网关 `:8080`，用户服务 gRPC `:9091`，任务服务 gRPC `:9092`，PostgreSQL `:5433`，Redis `:6380`。
 
-## Key Architectural Decisions
+## 关键架构决策
 
-- **One DB, two schemas:** Single PostgreSQL instance with `user_svc` and `task_svc` schemas
-- **Shared Redis:** One Redis instance for caching, rate limiting, and idempotency
-- **Gateway-only JWT verification:** Internal services trust injected `x-user-id`/`x-username` metadata headers; they never hold the JWT secret
-- **Internal RPC auth:** `x-internal-token` static shared secret validated by server interceptor on every RPC
-- **Bounded request lifetimes:** HTTP servers have explicit read/write/idle timeouts; internal gRPC calls get default deadlines
-- **Optimistic locking:** `projects.version` and `tasks.version` prevent concurrent write conflicts
-- **Soft deletes with partial unique indexes:** `users` and `projects` use GORM soft delete with `WHERE deleted_at IS NULL` partial unique indexes
-- **Owner consistency:** `projects.owner_id` is the source of truth; `project_members` keeps a redundant `role=owner` row, updated atomically in `TransferOwnership`
-- **Non-member = NOT_FOUND:** Access denied for non-members returns 404 (not 403) to avoid leaking resource existence
-- **Async operation logs:** Buffered channel writer prevents log I/O from blocking business responses; degrades gracefully under backpressure
-- **Idempotency in handlers, not middleware:** Checked after bind/validate so invalid requests don't consume idempotency keys
+- **单数据库双模式：** 单个 PostgreSQL 实例，`user_svc` 与 `task_svc` 两个逻辑模式
+- **共享 Redis：** 单个 Redis 实例承载缓存、限流与幂等键
+- **网关集中鉴权：** JWT 仅在 API 网关校验，内部服务信任注入的 `x-user-id`/`x-username` 元数据头，不持有 JWT 密钥
+- **内部 RPC 认证：** `x-internal-token` 静态共享密钥，每个 RPC 由服务端拦截器校验
+- **请求生命周期收敛：** HTTP 服务器配置显式读写/空闲超时；内部 gRPC 调用均有默认 deadline
+- **乐观锁：** `projects.version` 与 `tasks.version` 防止并发写入冲突
+- **软删除 + 部分唯一索引：** `users` 与 `projects` 使用 GORM 软删除，配合 `WHERE deleted_at IS NULL` 部分唯一索引
+- **Owner 一致性：** `projects.owner_id` 是唯一数据源，`project_members` 冗余维护 `role=owner` 行，所有权转让时在同一事务中原子更新
+- **非成员即 NOT_FOUND：** 非成员访问项目资源返回 404（而非 403），防止泄露资源存在性
+- **异步操作日志：** 缓冲 channel 写入器确保日志 I/O 不阻塞业务响应，背压时优雅降级
+- **幂等性在 handler 而非中间件：** 在参数绑定/校验之后检查，防止非法请求消耗幂等键
+- **日志聚合（Loki）：** Zap JSON → stdout → Promtail → Loki，应用代码零改动
+- **多平台部署：** Docker Compose 本地开发，Kubernetes（Kustomize）生产部署
 
-## Tech Stack
+## 技术栈
 
-Go 1.26+ · Gin · gRPC + protobuf (buf) · PostgreSQL 16 · Redis 7 · GORM · pgx/v5 · JWT HS256 · bcrypt · Zap · Viper · Docker Compose · testcontainers-go · testify · golangci-lint · GitHub Actions CI
+Go 1.26+ · Gin · gRPC + protobuf（buf）· PostgreSQL 16 · Redis 7 · GORM · pgx/v5 · JWT HS256 · bcrypt · Zap · Viper · Prometheus · Jaeger · Loki · Promtail · Grafana · Docker Compose · Kubernetes（Kustomize）· testcontainers-go · testify · golangci-lint · GitHub Actions CI
 
-## Project Layout
+## 项目结构
 
 ```
-├── api/proto/              # Protobuf definitions (user/v1, task/v1)
-├── cmd/                    # Service entrypoints (api-gateway, user-service, task-service)
-├── configs/                # Multi-env YAML configs (local, dev, docker)
-├── gen/go/                 # Generated protobuf Go code
+├── api/proto/              # Protobuf 定义（user/v1, task/v1）
+├── cmd/                    # 服务入口（api-gateway, user-service, task-service）
+├── configs/                # 多环境 YAML 配置（local, dev, docker）
+├── gen/go/                 # 生成的 protobuf Go 代码
 ├── internal/
-│   ├── gateway/            # API gateway (handler, middleware, rpc, server)
-│   ├── user/               # User service (biz, data, service, server)
-│   └── task/               # Task service (biz, data, service, server)
-├── migrations/             # SQL migrations per schema
-├── pkg/                    # Shared packages (xerr, xgrpc, xhttp, xjwt, xlog, xpgsql, xredis, xratelimit, etc.)
-├── scripts/                # Build/test/migration scripts
-├── test/integration/       # Integration tests (real PG + Redis via testcontainers)
-├── deploy/                 # Docker Compose, Prometheus, Grafana configs
-├── docs/                   # Project documentation
-├── web/                    # React frontend
+│   ├── gateway/            # API 网关（handler, middleware, rpc, server）
+│   ├── user/               # 用户服务（biz, data, service, server）
+│   └── task/               # 任务服务（biz, data, service, server）
+├── migrations/             # 按 schema 组织的 SQL 迁移脚本
+├── pkg/                    # 共享包（xerr, xgrpc, xhttp, xjwt, xlog, xpgsql, xredis, xratelimit 等）
+├── scripts/                # 构建/测试/迁移脚本
+├── test/integration/       # 集成测试（通过 testcontainers 对接真实 PG + Redis）
+├── deploy/                 # Docker Compose、K8s 清单、Prometheus、Grafana、Loki 配置
+│   ├── docker-compose.yml
+│   ├── prometheus.yml
+│   ├── loki-config.yaml
+│   ├── promtail-config.yaml
+│   ├── grafana/
+│   └── k8s/                # Kubernetes 清单（Kustomize）
+├── Dockerfile              # 多阶段构建（所有服务共用）
+├── docs/                   # 项目文档
+├── web/                    # React 前端
 └── Makefile                # proto, test, lint, coverage, migrate, up/down
 ```

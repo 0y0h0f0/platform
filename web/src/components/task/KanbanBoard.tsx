@@ -56,7 +56,26 @@ export function KanbanBoard({
   const changeStatusMutation = useChangeTaskStatusMutation()
   const tasks = useMemo(
     // The board renders all loaded pages at once; fetchNextPage appends more.
-    () => tasksQuery.data?.pages.flatMap((page) => page.tasks) ?? [],
+    () =>
+      tasksQuery.data?.pages.flatMap((page) =>
+        (page.tasks ?? []).map((t) => {
+          if (
+            t.status === undefined ||
+            t.status === null ||
+            t.version === undefined ||
+            t.version === null
+          ) {
+            if (import.meta.env.DEV) {
+              console.warn('Task missing required fields', {
+                id: t.id,
+                status: t.status,
+                version: t.version,
+              })
+            }
+          }
+          return { ...t, status: t.status ?? 0, version: t.version ?? 0 }
+        }),
+      ) ?? [],
     [tasksQuery.data],
   )
 

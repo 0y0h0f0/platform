@@ -33,7 +33,7 @@ wait_for_postgres() {
   return 1
 }
 
-wait_for_postgres || echo "WARNING: postgres not reachable, migration may fail"
+wait_for_postgres || { echo "ERROR: postgres not reachable, aborting migration"; exit 1; }
 
 run_schema_migration() {
   local schema="$1"

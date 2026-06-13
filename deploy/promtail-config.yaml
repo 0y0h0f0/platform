@@ -1,0 +1,73 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: docker-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 15s
+    relabel_configs:
+      - source_labels: [__meta_docker_container_status]
+        regex: running
+        action: keep
+      - source_labels: [__meta_docker_container_name]
+        target_label: container
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-api-gateway.*
+        target_label: service
+        replacement: api-gateway
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-user-service.*
+        target_label: service
+        replacement: user-service
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-task-service.*
+        target_label: service
+        replacement: task-service
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-postgres.*
+        target_label: service
+        replacement: postgres
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-redis.*
+        target_label: service
+        replacement: redis
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-jaeger.*
+        target_label: service
+        replacement: jaeger
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-prometheus.*
+        target_label: service
+        replacement: prometheus
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-grafana.*
+        target_label: service
+        replacement: grafana
+      - source_labels: [__meta_docker_container_name]
+        regex: task-platform-loki.*
+        target_label: service
+        replacement: loki
+      - source_labels: [service]
+        target_label: job
+      - action: labelmap
+        regex: __meta_docker_container_label_com_docker_compose_service
+        replacement: compose_service
+
+  - job_name: journal
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: [__journal__systemd_unit]
+        target_label: unit
+      - source_labels: [__journal__hostname]
+        target_label: hostname

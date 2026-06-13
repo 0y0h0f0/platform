@@ -2,6 +2,8 @@
 
 Task Platform 是一个团队任务协作平台，采用「1 个 API Gateway + 2 个核心微服务」的克制型微服务架构。外部使用 HTTP/JSON，内部使用 gRPC unary 调用，数据层使用单 PostgreSQL 实例内的多 schema 逻辑隔离，并通过 Redis 承担缓存、限流、幂等和 JWT 黑名单。
 
+可观测性栈：Prometheus（指标）+ Jaeger（追踪）+ Loki（日志聚合）+ Grafana（统一仪表盘）。部署支持 Docker Compose（本地开发）和 Kubernetes（生产级）。
+
 ## 总体拓扑
 
 ```text
@@ -40,6 +42,12 @@ Redis 7
   - rate limit token bucket
   - idempotency result cache
   - JWT blacklist
+
+Observability
+  Prometheus <- metrics scrape
+  Jaeger     <- OTLP gRPC traces
+  Loki       <- container logs via Promtail
+  Grafana    -> unified dashboards (Prometheus + Jaeger + Loki)
 ```
 
 ## 服务边界
@@ -117,7 +125,28 @@ Recovery -> MaxBodySize(1MB) -> SecurityHeaders -> RequestID
 | biz | `internal/*/biz` | 业务规则、权限矩阵、状态机、缓存策略、事务协调 |
 | data | `internal/*/data` | GORM model、Repository、SQL 查询 |
 
-跨服务通用能力放在 `pkg/x*` 下，例如 `xerr`、`xgrpc`、`xhttp`、`xjwt`、`xredis`、`xpgsql`、`xratelimit`、`xtrace`。
+跨服务通用能力放在 `pkg/x*` 下，例如 `xerr`、`xgrpc`、`xhttp`、`xjwt`、`xredis`、`xpgsql`、`xratelimit`、`xtrace`、`xlog`。
+
+## 可观测性架构
+
+```text
+App Logs (Zap JSON stdout)
+   |
+   v
+Promtail (DaemonSet / Docker socket)
+   |
+   v
+Loki ── Grafana (unified dashboards)
+                     |
+OTLP traces ── Jaeger ── Grafana (trace-to-log correlation)
+                     |
+Metrics ── Prometheus ── Grafana
+```
+
+关键关联路径：
+- `request_id` → 跨服务日志串联（Loki query: `{service=~".*"} | json | request_id = "xxx"`）
+- `trace_id` → 日志跳转 Jaeger trace（Grafana datasource `derivedFields`）
+- Jaeger span → 反向跳转 Loki 日志（`tracesToLogsV2`）
 
 ## 关键设计决策
 
@@ -134,6 +163,8 @@ Recovery -> MaxBodySize(1MB) -> SecurityHeaders -> RequestID
 | 操作日志异步写入 | 写业务响应不等待日志批量落库，channel 满时降级为同步写并记录告警 |
 | Redis 作为共享基础设施 | 同时用于缓存、限流、幂等和 token 黑名单，降低组件复杂度 |
 | singleflight 防击穿 | 用户和项目详情缓存 miss 时合并同 key 并发查询，减少热点 key 过期瞬间的 DB 压力 |
+| 日志聚合 (Loki) | Zap JSON → stdout → Promtail → Loki，零应用代码改动 |
+| 容器化与 K8s | 多阶段 Dockerfile 静态构建，Kustomize 多环境管理，HPA 自动扩缩 |
 
 ## 数据一致性边界
 

@@ -82,6 +82,9 @@ func dial(addr, internalToken string) (*grpc.ClientConn, error) {
 func (c *Clients) Close() error {
 	uerr := c.userConn.Close()
 	terr := c.taskConn.Close()
+	if uerr != nil && terr != nil {
+		return fmt.Errorf("user: %w; task: %w", uerr, terr)
+	}
 	if uerr != nil {
 		return uerr
 	}

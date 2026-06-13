@@ -48,6 +48,9 @@ export interface RestProject {
   name: string
   description: string
   owner_id: string
+  owner_username?: string
+  owner_nickname?: string
+  owner_avatar_url?: string
   status: ProjectStatus
   version: number
 }
@@ -56,6 +59,9 @@ export interface RestProjectMember {
   id: string
   project_id: string
   user_id: string
+  username?: string
+  nickname?: string
+  avatar_url?: string
   role: Role
 }
 
@@ -67,7 +73,13 @@ export interface RestTask {
   status: TaskStatus
   priority: Priority
   assignee_id: string
+  assignee_username?: string
+  assignee_nickname?: string
+  assignee_avatar_url?: string
   creator_id: string
+  creator_username?: string
+  creator_nickname?: string
+  creator_avatar_url?: string
   due_time: string
   version: number
 }

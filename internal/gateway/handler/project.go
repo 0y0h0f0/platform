@@ -45,11 +45,12 @@ func (h *ProjectHandler) Create(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoProject(c.Request.Context(), h.userClient, res.Project)
 	c.JSON(http.StatusCreated, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -82,11 +83,12 @@ func (h *ProjectHandler) List(c *gin.Context) {
 		return
 	}
 
+	data := enrichProjects(c.Request.Context(), h.userClient, res)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -101,11 +103,12 @@ func (h *ProjectHandler) Get(c *gin.Context) {
 		return
 	}
 
+	data := enrichProject(c.Request.Context(), h.userClient, res)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -133,11 +136,12 @@ func (h *ProjectHandler) Update(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoProject(c.Request.Context(), h.userClient, res.Project)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -158,11 +162,12 @@ func (h *ProjectHandler) Archive(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoProject(c.Request.Context(), h.userClient, res.Project)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -183,11 +188,12 @@ func (h *ProjectHandler) Unarchive(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoProject(c.Request.Context(), h.userClient, res.Project)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -215,11 +221,12 @@ func (h *ProjectHandler) Transfer(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoProject(c.Request.Context(), h.userClient, res.Project)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -247,11 +254,12 @@ func (h *ProjectHandler) AddMember(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoMember(c.Request.Context(), h.userClient, res.Member)
 	c.JSON(http.StatusCreated, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -266,11 +274,12 @@ func (h *ProjectHandler) ListMembers(c *gin.Context) {
 		return
 	}
 
+	data := enrichMembers(c.Request.Context(), h.userClient, res)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -300,11 +309,12 @@ func (h *ProjectHandler) UpdateMemberRole(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoMember(c.Request.Context(), h.userClient, res.Member)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -327,11 +337,12 @@ func (h *ProjectHandler) RemoveMember(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoMember(c.Request.Context(), h.userClient, res.Member)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -352,11 +363,12 @@ func (h *ProjectHandler) Leave(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoMember(c.Request.Context(), h.userClient, res.Member)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 

@@ -7,7 +7,8 @@ const meDuration = new Trend('me_duration');
 const listDuration = new Trend('list_duration');
 
 const BASE_URL = __ENV.BASE_URL || 'http://127.0.0.1:8080';
-const TOKEN = __ENV.TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI3ZTA2NTZmZi1lZTgxLTQzNGEtYmM3MS1kNTI5ZDc1MmMyM2EiLCJleHAiOjE3NzkyOTYyMzEsImlhdCI6MTc3OTI4OTAzMSwianRpIjoiN2NmOWI2MmYtMmU0Yy00MjY4LWJiYjAtZTI2MzZhMzE4MDFhIiwidXNlcm5hbWUiOiJwZXJmXzFrcXBzIn0.dmYg3oIJ7PaH9aaHHObBYopzoL23mVl7QrLqpxA4WAU';
+const TOKEN = __ENV.TOKEN;
+if (!TOKEN) { throw new Error('TOKEN env var required. Generate a fresh token first.'); }
 
 export const options = {
   scenarios: {

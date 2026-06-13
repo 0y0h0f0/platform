@@ -44,11 +44,12 @@ func (h *TaskHandler) Create(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoTask(c.Request.Context(), h.userClient, res.Task)
 	c.JSON(http.StatusCreated, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -100,11 +101,12 @@ func (h *TaskHandler) List(c *gin.Context) {
 		return
 	}
 
+	data := enrichTasks(c.Request.Context(), h.userClient, res)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -119,11 +121,12 @@ func (h *TaskHandler) Get(c *gin.Context) {
 		return
 	}
 
+	data := enrichTask(c.Request.Context(), h.userClient, res)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -151,11 +154,12 @@ func (h *TaskHandler) Update(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoTask(c.Request.Context(), h.userClient, res.Task)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -176,11 +180,12 @@ func (h *TaskHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoTask(c.Request.Context(), h.userClient, res.Task)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -208,11 +213,12 @@ func (h *TaskHandler) Assign(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoTask(c.Request.Context(), h.userClient, res.Task)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 
@@ -240,11 +246,12 @@ func (h *TaskHandler) ChangeStatus(c *gin.Context) {
 		return
 	}
 
+	data := enrichProtoTask(c.Request.Context(), h.userClient, res.Task)
 	c.JSON(http.StatusOK, &xerr.HTTPResponse{
 		Code:      xerr.CodeOK,
 		Message:   "ok",
 		RequestID: middleware.GetRequestID(c.Request.Context()),
-		Data:      res,
+		Data:      data,
 	})
 }
 

@@ -47,6 +47,7 @@ func New(dsn string) (*gorm.DB, error) {
 	sqlDB.SetMaxOpenConns(maxOpen)
 	sqlDB.SetMaxIdleConns(maxIdle)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
 	if err := UseMetricsPlugin(db); err != nil {
 		return nil, fmt.Errorf("register metrics plugin: %w", err)

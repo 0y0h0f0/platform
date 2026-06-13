@@ -18,6 +18,15 @@ export function useAuthBootstrap() {
     hydrate()
   }, [hydrate])
 
+  // Listen for auth:expired events from the API client interceptor (fired on 401
+  // responses). Without this listener a stale tab stays on the current page with
+  // every API call silently failing.
+  useEffect(() => {
+    const handler = () => setUnauthenticated()
+    window.addEventListener('auth:expired', handler)
+    return () => window.removeEventListener('auth:expired', handler)
+  }, [setUnauthenticated])
+
   const currentUserQuery = useCurrentUserQuery(status === 'loading' && Boolean(accessToken))
 
   useEffect(() => {

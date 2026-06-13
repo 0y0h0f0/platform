@@ -15,7 +15,7 @@ interface OperationLogListProps {
 
 export function OperationLogList({ limit = 20, projectId }: OperationLogListProps) {
   const logsQuery = useProjectOperationLogsQuery({ limit, projectId })
-  const logs = logsQuery.data?.pages.flatMap((page) => page.logs) ?? []
+  const logs = logsQuery.data?.pages.flatMap((page) => page.logs ?? []) ?? []
 
   if (logsQuery.isLoading) {
     return <LoadingSpinner tip="正在加载操作日志" />

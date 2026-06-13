@@ -8,21 +8,21 @@ import (
 	"log"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"gorm.io/gorm"
 
 	userv1 "task-platform/gen/go/user/v1"
 	"task-platform/internal/user/biz"
 	"task-platform/internal/user/data"
 	"task-platform/internal/user/service"
+	"task-platform/pkg/xconfig"
 	"task-platform/pkg/xerr"
 	"task-platform/pkg/xgrpc"
 	"task-platform/pkg/xjwt"
@@ -49,26 +49,26 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		GRPCAddr:          envOrDefault("GRPC_ADDR", ":9091"),
-		AdminAddr:         envOrDefault("ADMIN_ADDR", ":8081"),
+		GRPCAddr:          xconfig.EnvOrDefault("GRPC_ADDR", ":9091"),
+		AdminAddr:         xconfig.EnvOrDefault("ADMIN_ADDR", ":8081"),
 		ReflectionEnabled: false,
 		PostgresDSN:       os.Getenv("POSTGRES_DSN"),
-		RedisAddr:         fmt.Sprintf("%s:%s", envOrDefault("REDIS_HOST", "127.0.0.1"), envOrDefault("REDIS_PORT", "6380")),
+		RedisAddr:         fmt.Sprintf("%s:%s", xconfig.EnvOrDefault("REDIS_HOST", "127.0.0.1"), xconfig.EnvOrDefault("REDIS_PORT", "6380")),
 		RedisPassword:     os.Getenv("REDIS_PASSWORD"),
 		JWTSecret:         os.Getenv("JWT_SECRET"),
 		InternalToken:     os.Getenv("INTERNAL_TOKEN"),
-		WeakPasswordsPath: envOrDefault("WEAK_PASSWORDS_PATH", "configs/security/weak_passwords.txt"),
+		WeakPasswordsPath: xconfig.EnvOrDefault("WEAK_PASSWORDS_PATH", "configs/security/weak_passwords.txt"),
 	}
 }
 
-func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
+func NewGRPCServer(cfg Config) (*ServerBundle, error) {
 	if cfg.PostgresDSN == "" {
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "POSTGRES_DSN is required")
 	}
-	if err := validateSecret("JWT_SECRET", cfg.JWTSecret, 32); err != nil {
+	if err := xconfig.ValidateSecret("JWT_SECRET", cfg.JWTSecret, 32); err != nil {
 		return nil, err
 	}
-	if err := validateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
+	if err := xconfig.ValidateSecret("INTERNAL_TOKEN", cfg.InternalToken, 16); err != nil {
 		return nil, err
 	}
 
@@ -98,12 +98,12 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 		logger = zap.NewNop()
 	}
 	b.SetLogger(logger)
-	interceptor := newAuthInterceptor(cfg.InternalToken, rdb)
+	interceptor := newAuthInterceptor(cfg.InternalToken)
 	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 		grpc.ChainUnaryInterceptor(
 			xgrpc.UnaryServerMetricsInterceptor(),
-			loggingInterceptor(logger),
+			xgrpc.LoggingInterceptor(logger),
 			xgrpc.UnaryServerTimeoutInterceptor(xgrpc.ServerTimeoutFromEnv()),
 			interceptor,
 		),
@@ -113,17 +113,42 @@ func NewGRPCServer(cfg Config) (*xgrpc.Server, error) {
 
 	userv1.RegisterUserServiceServer(grpcServer.GRPC, svc)
 
-	return grpcServer, nil
+	return &ServerBundle{Server: grpcServer, db: db, rdb: rdb, logger: logger}, nil
 }
 
-func newAuthInterceptor(internalToken string, rdb *redis.Client) grpc.UnaryServerInterceptor {
+type ServerBundle struct {
+	*xgrpc.Server
+	db     *gorm.DB
+	rdb    *redis.Client
+	logger *zap.Logger
+}
+
+func (b *ServerBundle) Shutdown() {
+	if b.db != nil {
+		sqlDB, err := b.db.DB()
+		if err != nil {
+			b.logger.Warn("failed to get underlying sql.DB", zap.Error(err))
+		} else {
+			if err := sqlDB.Close(); err != nil {
+				b.logger.Warn("failed to close database connection pool", zap.Error(err))
+			}
+		}
+	}
+	if b.rdb != nil {
+		if err := b.rdb.Close(); err != nil {
+			b.logger.Warn("failed to close redis client", zap.Error(err))
+		}
+	}
+}
+
+func newAuthInterceptor(internalToken string) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		md, ok := metadata.FromIncomingContext(ctx)
 		if !ok {
 			return nil, status.Error(codes.Unauthenticated, "missing metadata")
 		}
 
-		token := singleValue(md, "x-internal-token")
+		token := xgrpc.SingleValue(md, "x-internal-token")
 		got := sha256.Sum256([]byte(token))
 		want := sha256.Sum256([]byte(internalToken))
 		if subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
@@ -131,8 +156,8 @@ func newAuthInterceptor(internalToken string, rdb *redis.Client) grpc.UnaryServe
 		}
 
 		if !anonymousMethods[info.FullMethod] {
-			userID := singleValue(md, "x-user-id")
-			username := singleValue(md, "x-username")
+			userID := xgrpc.SingleValue(md, "x-user-id")
+			username := xgrpc.SingleValue(md, "x-username")
 			if userID == "" || username == "" {
 				return nil, status.Error(codes.Unauthenticated, "missing user identity")
 			}
@@ -140,46 +165,6 @@ func newAuthInterceptor(internalToken string, rdb *redis.Client) grpc.UnaryServe
 
 		return handler(ctx, req)
 	}
-}
-
-func loggingInterceptor(logger *zap.Logger) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
-		start := time.Now()
-
-		requestID := ""
-		if md, ok := metadata.FromIncomingContext(ctx); ok {
-			requestID = singleValue(md, "x-request-id")
-		}
-
-		span := trace.SpanFromContext(ctx)
-		sc := span.SpanContext()
-
-		resp, err := handler(ctx, req)
-
-		fields := []zap.Field{
-			zap.String("method", info.FullMethod),
-			zap.Duration("latency", time.Since(start)),
-			zap.String("request_id", requestID),
-			zap.String("trace_id", sc.TraceID().String()),
-			zap.String("span_id", sc.SpanID().String()),
-		}
-		if err != nil {
-			fields = append(fields, zap.Error(err))
-			logger.Error("grpc request failed", fields...)
-		} else {
-			logger.Info("grpc request", fields...)
-		}
-
-		return resp, err
-	}
-}
-
-func singleValue(md metadata.MD, key string) string {
-	vals := md.Get(key)
-	if len(vals) == 0 {
-		return ""
-	}
-	return vals[0]
 }
 
 func loadWeakPasswords(path string) ([]string, error) {
@@ -195,24 +180,4 @@ func loadWeakPasswords(path string) ([]string, error) {
 		}
 	}
 	return result, nil
-}
-
-func validateSecret(name, value string, minLen int) error {
-	if value == "" {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+" is required")
-	}
-	if value == "replace-with-a-long-random-secret" || value == "replace-with-a-long-random-internal-token" {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+" must be changed from the default placeholder")
-	}
-	if len(value) < minLen {
-		return xerr.NewError(xerr.CodeFailedPrecondition, name+fmt.Sprintf(" must be at least %d characters", minLen))
-	}
-	return nil
-}
-
-func envOrDefault(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
 }

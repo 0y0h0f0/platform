@@ -1,0 +1,48 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: task-platform
+resources:
+- namespace.yaml
+- secrets.yaml
+- postgres/service.yaml
+- postgres/pvc.yaml
+- postgres/statefulset.yaml
+- redis/service.yaml
+- redis/pvc.yaml
+- redis/statefulset.yaml
+- api-gateway/deployment.yaml
+- api-gateway/service.yaml
+- api-gateway/hpa.yaml
+- user-service/deployment.yaml
+- user-service/service.yaml
+- task-service/deployment.yaml
+- task-service/service.yaml
+- prometheus/configmap.yaml
+- prometheus/deployment.yaml
+- prometheus/service.yaml
+- prometheus/pvc.yaml
+- jaeger/deployment.yaml
+- jaeger/service.yaml
+- alertmanager/configmap.yaml
+- alertmanager/deployment.yaml
+- alertmanager/service.yaml
+- grafana/configmap-datasources.yaml
+- grafana/configmap-dashboards.yaml
+- grafana/configmap-dashboards-provisioning.yaml
+- grafana/deployment.yaml
+- grafana/service.yaml
+- grafana/pvc.yaml
+- grafana/ingress.yaml
+- loki/configmap.yaml
+- loki/configmap-rules.yaml
+- loki/statefulset.yaml
+- loki/service.yaml
+- loki/pvc.yaml
+- promtail/configmap.yaml
+- promtail/daemonset.yaml
+- web/deployment.yaml
+- web/service.yaml
+labels:
+- pairs:
+    app.kubernetes.io/part-of: task-platform
+  includeSelectors: true

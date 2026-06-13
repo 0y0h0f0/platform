@@ -90,7 +90,7 @@ func TestTaskDelete_Success(t *testing.T) {
 	task := &data.Task{ProjectID: uid(), Title: "To Delete", CreatorID: uid()}
 	_ = repo.Create(context.Background(), task)
 
-	deleted, err := repo.Delete(context.Background(), task.ID)
+	deleted, err := repo.Delete(context.Background(), task.ID, task.Version)
 	if err != nil {
 		t.Fatalf("delete: %v", err)
 	}

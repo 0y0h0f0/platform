@@ -2,6 +2,8 @@ package xhttp
 
 import (
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -104,6 +106,11 @@ func NewEngine(service string, ready *atomic.Bool) *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 
 	engine := gin.New()
+
+	// Prevent X-Forwarded-For spoofing by trusting only internal proxies.
+	// Override via TRUSTED_PROXIES env var (comma-separated IPs/CIDRs).
+	engine.SetTrustedProxies(trustedProxies())
+
 	engine.Use(gin.Recovery())
 	engine.GET("/", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
@@ -134,4 +141,19 @@ func NewEngine(service string, ready *atomic.Bool) *gin.Engine {
 	engine.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	return engine
+}
+
+// trustedProxies returns the list of proxy IPs/CIDRs that Gin should trust
+// when parsing X-Forwarded-For headers. Defaults to private network ranges;
+// override via the TRUSTED_PROXIES env var (comma-separated).
+func trustedProxies() []string {
+	if v := os.Getenv("TRUSTED_PROXIES"); v != "" {
+		return strings.Split(v, ",")
+	}
+	return []string{
+		"127.0.0.1",
+		"10.0.0.0/8",
+		"172.16.0.0/12",
+		"192.168.0.0/16",
+	}
 }

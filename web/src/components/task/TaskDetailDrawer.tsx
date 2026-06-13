@@ -47,7 +47,8 @@ export function TaskDetailDrawer({
   const [conflictTaskId, setConflictTaskId] = useState<string | null>(null)
   const queryTaskId = open ? (taskId ?? '') : ''
   const taskQuery = useTaskQuery(queryTaskId)
-  const task = taskQuery.data?.task
+  const raw = taskQuery.data?.task
+  const task = raw ? { ...raw, status: raw.status ?? 0, version: raw.version ?? 0 } : undefined
   const permission = useTaskPermission(project, currentRole, task, currentUserId)
   const conflictVisible = conflictTaskId === queryTaskId
 
@@ -90,7 +91,7 @@ export function TaskDetailDrawer({
           <section className="task-detail-heading">
             <Title level={2}>{task.title}</Title>
             <div className="task-detail-meta">
-              <Text type="secondary">创建者 {task.creator_id}</Text>
+              <Text type="secondary">创建者 {task.creator_username || task.creator_id}</Text>
               <Text type="secondary">任务 ID {task.id}</Text>
             </div>
           </section>

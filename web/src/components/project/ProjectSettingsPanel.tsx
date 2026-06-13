@@ -56,7 +56,7 @@ export function ProjectSettingsPanel({
       members
         .filter((member) => member.role !== Role.Owner)
         .map((member) => ({
-          label: `${member.user_id} · ${RoleLabels[member.role]}`,
+          label: `${member.username || member.user_id} · ${RoleLabels[member.role]}`,
           value: member.user_id,
         })),
     [members],

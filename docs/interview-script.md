@@ -2,7 +2,7 @@
 
 ## 一、项目概述（30 秒）
 
-这是一个基于 Go 微服务架构的团队任务协作平台，支持用户注册登录、项目与任务管理、成员权限控制、操作日志审计。整体采用 **api-gateway + 2 个核心微服务** 的架构，后端技术栈为 Gin + gRPC + PostgreSQL 16 + Redis 7，配有完整的可观测性体系（Prometheus + Grafana + Jaeger）。
+这是一个基于 Go 微服务架构的团队任务协作平台，支持用户注册登录、项目与任务管理、成员权限控制、操作日志审计。整体采用 **api-gateway + 2 个核心微服务** 的架构，后端技术栈为 Gin + gRPC + PostgreSQL 16 + Redis 7，配有完整的可观测性体系（Prometheus + Jaeger + Loki + Grafana），支持 Docker Compose 和 Kubernetes 部署。
 
 **一句话定位：** 用校招项目展示分布式系统后端开发的完整工程能力。
 
@@ -62,7 +62,8 @@ client → api-gateway (Gin, HTTP) ──gRPC──→ user-service → PostgreS
 - **Metrics：** OpenTelemetry + Prometheus。每个服务暴露 `/metrics`。关键指标包括 HTTP 请求耗时（按 path/method）、gRPC 调用耗时、DB 连接池状态、Redis 命中率、Rate Limiter 放行/拒绝数和操作日志降级/失败计数。
 - **Tracing：** OpenTelemetry + Jaeger，每个请求注入 trace_id，gRPC 调用自动传播 context。
 - **Logging：** Zap JSON 格式，每条日志带 `request_id`，与 trace 关联。
-- **Grafana Dashboard：** 19 个面板覆盖 HTTP/gRPC/DB/Redis/RateLimiter。
+- **Log Aggregation：** Loki + Promtail 集中式日志采集与查询。Promtail 通过 Docker socket 自动发现容器采集日志，零应用代码改动。Grafana 中实现 trace-to-log 双向关联：Jaeger span 可跳转到 Loki 查询对应日志，Loki 日志中的 `trace_id` 可跳转到 Jaeger 查看完整 trace。
+- **Grafana Dashboard：** 仪表盘覆盖 HTTP/gRPC/DB/Redis/RateLimiter + 日志总览（按 service/level 的日志量、实时日志流、HTTP access log 分析、p95 延迟）。
 
 ### 3.5 性能优化
 

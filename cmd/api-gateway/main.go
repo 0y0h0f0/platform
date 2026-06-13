@@ -34,7 +34,8 @@ type config struct {
 
 func main() {
 	if err := run(); err != nil {
-		panic(err)
+		fmt.Fprintf(os.Stderr, "fatal: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -152,5 +153,7 @@ func defaultEnv() string {
 }
 
 func syncLogger(logger *zap.Logger) {
-	_ = logger.Sync()
+	if err := logger.Sync(); err != nil {
+		fmt.Fprintf(os.Stderr, "failed to sync logger: %v\n", err)
+	}
 }

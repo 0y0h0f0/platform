@@ -29,7 +29,7 @@ export function TaskAssignSelect({
   const { message } = App.useApp()
   const assignTaskMutation = useAssignTaskMutation()
   const options = members.map((member) => ({
-    label: `${member.user_id} · ${RoleLabels[member.role]}`,
+    label: `${member.username || member.nickname || member.user_id} · ${RoleLabels[member.role]}`,
     value: member.user_id,
   }))
 

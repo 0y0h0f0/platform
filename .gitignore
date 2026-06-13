@@ -6,3 +6,10 @@ bin/
 .vscode/
 *.swp
 *.tmp
+
+# Compiled binaries (should not be tracked)
+api-gateway
+user-service
+task-service
+seed-users
+server.test

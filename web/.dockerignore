@@ -1,0 +1,9 @@
+node_modules
+dist
+.git
+*.md
+!README.md
+.e2e
+test-results
+stats.html
+playwright-report

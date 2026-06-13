@@ -1,0 +1,277 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: task-platform
+  labels:
+    app: prometheus
+    app.kubernetes.io/part-of: task-platform
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+
+    rule_files:
+      - "/etc/prometheus/prometheus-rules.yml"
+
+    alerting:
+      alertmanagers:
+        - static_configs:
+            - targets: ["alertmanager:9093"]
+
+    scrape_configs:
+      - job_name: api-gateway
+        static_configs:
+          - targets: ["api-gateway:8080"]
+      - job_name: user-service-admin
+        static_configs:
+          - targets: ["user-service:8081"]
+      - job_name: task-service-admin
+        static_configs:
+          - targets: ["task-service:8082"]
+      - job_name: alertmanager
+        static_configs:
+          - targets: ["alertmanager:9093"]
+
+  prometheus-rules.yml: |
+    groups:
+      - name: service_health
+        rules:
+          - alert: ServiceDown
+            expr: up{job=~"api-gateway|user-service-admin|task-service-admin"} == 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Service {{ $labels.job }} is down"
+              description: "{{ $labels.job }} has been unreachable for more than 1 minute. Check the service process and health endpoints."
+
+          - alert: ServiceFlapping
+            expr: rate(task_platform_boot_total[5m]) > 0.01
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Service {{ $labels.service }} is restarting frequently"
+              description: "{{ $labels.service }} has booted {{ $value | humanize }} times in the last 5 minutes."
+
+      - name: http_errors
+        rules:
+          - alert: HighHTTP5xxRate
+            expr: |
+              (
+                sum(rate(http_requests_total{status=~"5.."}[2m])) by (job)
+                /
+                sum(rate(http_requests_total[2m])) by (job)
+              ) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High HTTP 5xx error rate on {{ $labels.job }}"
+              description: "{{ $labels.job }} 5xx error rate is {{ $value | humanizePercentage }} over the last 2 minutes."
+
+          - alert: HighHTTP4xxRate
+            expr: |
+              (
+                sum(rate(http_requests_total{status=~"4.."}[2m])) by (job)
+                /
+                sum(rate(http_requests_total[2m])) by (job)
+              ) > 0.20
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High HTTP 4xx error rate on {{ $labels.job }}"
+              description: "{{ $labels.job }} 4xx error rate is {{ $value | humanizePercentage }} over the last 2 minutes."
+
+      - name: http_latency
+        rules:
+          - alert: HighHTTPLatency
+            expr: |
+              histogram_quantile(0.99,
+                sum(rate(http_request_duration_seconds_bucket[2m])) by (le, job)
+              ) > 1.0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High HTTP p99 latency on {{ $labels.job }}"
+              description: "{{ $labels.job }} p99 HTTP latency is {{ $value }}s over the last 2 minutes."
+
+      - name: grpc_errors
+        rules:
+          - alert: HighgRPCServerErrorRate
+            expr: |
+              (
+                sum(rate(grpc_server_requests_total{grpc_code=~"Unavailable|Internal|DeadlineExceeded|Aborted|DataLoss|Unknown"}[2m])) by (job)
+                /
+                sum(rate(grpc_server_requests_total[2m])) by (job)
+              ) > 0.05
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High gRPC server error rate on {{ $labels.job }}"
+              description: "{{ $labels.job }} gRPC server error rate is {{ $value | humanizePercentage }} over the last 2 minutes."
+
+          - alert: HighgRPCClientErrorRate
+            expr: |
+              (
+                sum(rate(grpc_client_requests_total{grpc_code=~"Unavailable|Internal|DeadlineExceeded|Aborted|DataLoss|Unknown"}[2m])) by (job)
+                /
+                sum(rate(grpc_client_requests_total[2m])) by (job)
+              ) > 0.05
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High gRPC client error rate from {{ $labels.job }}"
+              description: "{{ $labels.job }} is experiencing {{ $value | humanizePercentage }} gRPC client errors."
+
+      - name: grpc_latency
+        rules:
+          - alert: HighgRPCLatency
+            expr: |
+              histogram_quantile(0.99,
+                sum(rate(grpc_server_request_duration_seconds_bucket[2m])) by (le, job)
+              ) > 1.0
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High gRPC p99 latency on {{ $labels.job }}"
+              description: "{{ $labels.job }} p99 gRPC latency is {{ $value }}s over the last 2 minutes."
+
+      - name: database
+        rules:
+          - alert: HighDatabaseErrorRate
+            expr: |
+              (
+                sum(rate(db_query_errors_total[2m])) by (job)
+                /
+                sum(rate(db_query_duration_seconds_count[2m])) by (job)
+              ) > 0.02
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High database error rate on {{ $labels.job }}"
+              description: "{{ $labels.job }} DB error rate is {{ $value | humanizePercentage }} over the last 2 minutes."
+
+          - alert: DatabaseConnectionPoolHigh
+            expr: |
+              (db_pool_in_use / db_pool_open_connections) > 0.8
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Database connection pool near capacity"
+              description: "{{ $value | humanizePercentage }} of DB connections are in use on {{ $labels.job }}."
+
+          - alert: HighDatabaseLatency
+            expr: |
+              histogram_quantile(0.99,
+                sum(rate(db_query_duration_seconds_bucket[2m])) by (le, job)
+              ) > 0.5
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High database query latency on {{ $labels.job }}"
+              description: "{{ $labels.job }} p99 DB query latency is {{ $value }}s over the last 2 minutes."
+
+      - name: redis
+        rules:
+          - alert: HighRedisErrorRate
+            expr: |
+              (
+                sum(rate(redis_command_errors_total[2m])) by (job)
+                /
+                sum(rate(redis_command_duration_seconds_count[2m])) by (job)
+              ) > 0.02
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High Redis error rate on {{ $labels.job }}"
+              description: "{{ $labels.job }} Redis error rate is {{ $value | humanizePercentage }} over the last 2 minutes."
+
+          - alert: LowRedisCacheHitRate
+            expr: |
+              (
+                sum(rate(redis_cache_hits_total[5m]))
+                /
+                (sum(rate(redis_cache_hits_total[5m])) + sum(rate(redis_cache_misses_total[5m])))
+              ) < 0.5
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Low Redis cache hit rate"
+              description: "Cache hit rate is {{ $value | humanizePercentage }} over the last 5 minutes."
+
+      - name: rate_limiter
+        rules:
+          - alert: RateLimiterFailingOpen
+            expr: rate(gateway_rate_limiter_errors_total[2m]) > 0.083
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Rate limiter is failing open frequently"
+              description: "{{ $value | humanize }} rate limiter Redis errors/sec."
+
+          - alert: HighAuthRateLimitRejectionRate
+            expr: |
+              (
+                rate(gateway_rate_limit_rejected_total{scope="auth"}[2m])
+                /
+                (rate(gateway_rate_limit_allowed_total{scope="auth"}[2m]) + rate(gateway_rate_limit_rejected_total{scope="auth"}[2m]))
+              ) > 0.5
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High auth rate limit rejection rate"
+              description: "{{ $value | humanizePercentage }} of auth requests are being rate-limited."
+
+      - name: log_writer
+        rules:
+          - alert: LogWriterChannelFull
+            expr: rate(task_platform_log_writer_channel_full_total[2m]) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "Operation log writer channel is full"
+              description: "Log writer is degrading to synchronous writes."
+
+          - alert: LogWriterBatchFailure
+            expr: rate(task_platform_log_writer_batch_failure_total[2m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Operation log batch writes are failing"
+              description: "Operation logs may be permanently lost."
+
+          - alert: LogWriterWorkerPanic
+            expr: rate(task_platform_log_writer_worker_panic_total[2m]) > 0
+            for: 1m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Operation log writer worker panicked"
+              description: "Worker was restarted automatically but investigation is needed."
+
+      - name: tracing
+        rules:
+          - alert: TracingDisabled
+            expr: tracing_enabled == 0
+            for: 5m
+            labels:
+              severity: warning
+            annotations:
+              summary: "OpenTelemetry tracing is disabled"
+              description: "tracing_enabled is 0 on {{ $labels.job }}. Check Jaeger connectivity."

@@ -25,8 +25,11 @@ function getActionLabel(action: OperationLog['action']) {
 
 function parseDetail(detailJson: string) {
   try {
-    const parsed = JSON.parse(detailJson) as Record<string, unknown>
-    return Object.entries(parsed).filter(
+    const parsed = JSON.parse(detailJson)
+    if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return []
+    }
+    return Object.entries(parsed as Record<string, unknown>).filter(
       ([, value]) => value !== null && value !== undefined && value !== '',
     )
   } catch {
@@ -53,17 +56,14 @@ export function OperationLogItem({ log }: { log: OperationLog }) {
       <div className="operation-log-body">
         <Space className="operation-log-header" size={8} wrap>
           <Text strong>{getDisplayName(log)}</Text>
-          <Text type="secondary">{log.operator_id}</Text>
           <Tag>{getActionLabel(log.action)}</Tag>
         </Space>
         <Space size={[6, 6]} wrap>
-          {log.task_id ? <Tag color="blue">任务 {log.task_id}</Tag> : null}
           {details.map(([key, value]) => (
             <Tag key={key}>
               {detailLabels[key] ?? key}: {formatDetailValue(value)}
             </Tag>
           ))}
-          <Text type="secondary">{log.id}</Text>
         </Space>
       </div>
     </article>

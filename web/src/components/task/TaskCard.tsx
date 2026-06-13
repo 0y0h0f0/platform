@@ -60,7 +60,9 @@ export function TaskCard({
 
       <div className="task-card-meta">
         <Tag color={TaskStatusColors[task.status]}>{TaskStatusLabels[task.status]}</Tag>
-        <Text type="secondary">负责人 {task.assignee_id || '未指派'}</Text>
+        <Text type="secondary">
+          负责人 {task.assignee_username || task.assignee_id || '未指派'}
+        </Text>
         <Text type="secondary">截止 {formatDateTime(task.due_time)}</Text>
       </div>
 

@@ -50,7 +50,10 @@ export default function ProjectDetailPage() {
   const user = useAuthStore((state) => state.user)
   const projectQuery = useProjectQuery(id)
   const membersQuery = useProjectMembersQuery(id)
-  const project = projectQuery.data?.project
+  const rawProject = projectQuery.data?.project
+  const project = rawProject
+    ? { ...rawProject, status: rawProject.status ?? 0, version: rawProject.version ?? 0 }
+    : undefined
   const members = membersQuery.data?.members ?? []
   const activeTab = searchParams.get('tab') || 'kanban'
   const activeTaskId = searchParams.get('task') || undefined

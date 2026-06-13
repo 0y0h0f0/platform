@@ -1,5 +1,5 @@
 import { DeleteOutlined, UserAddOutlined } from '@ant-design/icons'
-import { App, Button, Popconfirm, Select, Space, Table, Tag, Typography } from 'antd'
+import { App, Button, Popconfirm, Select, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
 import type { ProjectMember } from '@/api/types'
@@ -95,11 +95,8 @@ export function MemberList({
       dataIndex: 'user_id',
       key: 'user_id',
       title: '成员',
-      render: (userId: ProjectMember['user_id']) => (
-        <Space direction="vertical" size={0}>
-          <Text strong>{userId}</Text>
-          <Text type="secondary">成员 ID</Text>
-        </Space>
+      render: (_userId: ProjectMember['user_id'], record: ProjectMember) => (
+        <Text strong>{record.username || record.nickname || _userId}</Text>
       ),
     },
     {

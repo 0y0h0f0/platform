@@ -28,7 +28,10 @@ type bodyCaptureWriter struct {
 
 // Write captures successful handler output while still streaming it to Gin.
 func (w *bodyCaptureWriter) Write(b []byte) (int, error) {
-	w.body.Write(b)
+	n, err := w.body.Write(b)
+	if err != nil {
+		return n, err
+	}
 	return w.ResponseWriter.Write(b)
 }
 
@@ -86,9 +89,11 @@ func SetupIdempotency(c *gin.Context, rdb *redis.Client) (shouldReturn bool, cle
 			})
 			return true, func() {}
 		}
-		c.Header("Content-Type", "application/json; charset=utf-8")
-		c.String(http.StatusOK, cached)
-		return true, func() {}
+			c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+			c.Writer.WriteHeader(http.StatusOK)
+			_, _ = c.Writer.WriteString(cached)
+			c.Abort()
+			return true, func() {}
 	}
 
 	capture := &bodyCaptureWriter{

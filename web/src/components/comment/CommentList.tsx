@@ -40,7 +40,7 @@ export function CommentList({
   const { message } = App.useApp()
   const commentsQuery = useCommentsQuery({ limit, taskId })
   const deleteCommentMutation = useDeleteCommentMutation(taskId)
-  const comments = commentsQuery.data?.pages.flatMap((page) => page.comments) ?? []
+  const comments = commentsQuery.data?.pages.flatMap((page) => page.comments ?? []) ?? []
   const deletingCommentId = deleteCommentMutation.variables
 
   const handleDelete = (commentId: string) => {

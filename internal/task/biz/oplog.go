@@ -26,7 +26,7 @@ func NewOpLogBiz(opLogRepo data.OperationLogRepository, projectRepo data.Project
 func (b *OpLogBiz) ListProjectLogs(ctx context.Context, projectID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error) {
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
 	if err != nil {
-		return nil, "", xerr.NewError(xerr.CodeNotFound, "project not found")
+		return nil, "", err // propagate DB errors verbatim
 	}
 	if member == nil {
 		return nil, "", xerr.NewError(xerr.CodeNotFound, "project not found")
@@ -37,11 +37,11 @@ func (b *OpLogBiz) ListProjectLogs(ctx context.Context, projectID, callerID stri
 func (b *OpLogBiz) ListTaskLogs(ctx context.Context, taskID, callerID string, limit int, cursor string) ([]*data.OperationLog, string, error) {
 	task, err := b.taskRepo.FindByID(ctx, taskID)
 	if err != nil {
-		return nil, "", xerr.NewError(xerr.CodeNotFound, "task not found")
+		return nil, "", err // propagate DB errors verbatim
 	}
 	member, err := b.memberRepo.FindByProjectAndUser(ctx, task.ProjectID, callerID)
 	if err != nil {
-		return nil, "", xerr.NewError(xerr.CodeNotFound, "task not found")
+		return nil, "", err // propagate DB errors verbatim
 	}
 	if member == nil {
 		return nil, "", xerr.NewError(xerr.CodeNotFound, "task not found")

@@ -262,7 +262,36 @@ func (b *ProjectBiz) TransferOwnership(ctx context.Context, projectID, callerID,
 		projectRepo := data.NewProjectRepository(tx)
 		memberRepo := data.NewMemberRepository(tx)
 
-		if _, err := projectRepo.Update(ctx, projectID, project.Version, map[string]any{
+		// Re-read project inside transaction to get the latest version for
+		// optimistic locking, preventing a TOCTOU race where the project is
+		// modified between the initial read and the transfer.
+		currentProject, err := projectRepo.FindByID(ctx, projectID)
+		if err != nil {
+			return err
+		}
+
+		// Re-verify both memberships inside the transaction to prevent TOCTOU
+		// races where a member is removed between the initial checks and the transfer.
+		callerMember, err := memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
+		if err != nil {
+			return err
+		}
+		if callerMember == nil {
+			return xerr.NewError(xerr.CodeFailedPrecondition, "caller is no longer a project member")
+		}
+		if callerMember.Role != data.RoleOwner {
+			return xerr.NewError(xerr.CodePermissionDenied, "caller is no longer the owner")
+		}
+
+		targetMember, err := memberRepo.FindByProjectAndUser(ctx, projectID, targetUserID)
+		if err != nil {
+			return err
+		}
+		if targetMember == nil {
+			return xerr.NewError(xerr.CodeFailedPrecondition, "target user is no longer a project member")
+		}
+
+		if _, err := projectRepo.Update(ctx, projectID, currentProject.Version, map[string]any{
 			"owner_id": targetUserID,
 			"version":  project.Version + 1,
 		}); err != nil {
@@ -330,12 +359,33 @@ func (b *ProjectBiz) AddProjectMember(ctx context.Context, projectID, callerID, 
 		return nil, xerr.NewError(xerr.CodeFailedPrecondition, "target user does not exist or is disabled")
 	}
 
-	member := &data.ProjectMember{
-		ProjectID: projectID,
-		UserID:    targetUserID,
-		Role:      role,
-	}
-	if err := b.memberRepo.Add(ctx, member); err != nil {
+	// Use a transaction with project version check to prevent writes on
+	// archived projects between the status check and the member insert.
+	var member *data.ProjectMember
+	err = b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		projectRepo := data.NewProjectRepository(tx)
+		memberRepo := data.NewMemberRepository(tx)
+
+		current, err := projectRepo.FindByID(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if current.Status == data.ProjectStatusArchived {
+			return xerr.NewError(xerr.CodeFailedPrecondition, "archived project is read-only")
+		}
+
+		m := &data.ProjectMember{
+			ProjectID: projectID,
+			UserID:    targetUserID,
+			Role:      role,
+		}
+		if err := memberRepo.Add(ctx, m); err != nil {
+			return err
+		}
+		member = m
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	b.logWriter.Enqueue(ctx, &data.OperationLog{
@@ -380,7 +430,51 @@ func (b *ProjectBiz) RemoveProjectMember(ctx context.Context, projectID, callerI
 		return nil, xerr.NewError(xerr.CodePermissionDenied, "no permission to remove members")
 	}
 
-	if err := b.memberRepo.Remove(ctx, projectID, targetUserID); err != nil {
+	err = b.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		memberRepo := data.NewMemberRepository(tx)
+		projectRepo := data.NewProjectRepository(tx)
+
+		// Re-verify the project is not archived inside the transaction.
+		currentProject, err := projectRepo.FindByID(ctx, projectID)
+		if err != nil {
+			return err
+		}
+		if currentProject.Status == data.ProjectStatusArchived {
+			return xerr.NewError(xerr.CodeFailedPrecondition, "archived project is read-only")
+		}
+
+		// Re-verify the caller is still a member with sufficient role.
+		currentCaller, err := memberRepo.FindByProjectAndUser(ctx, projectID, callerID)
+		if err != nil {
+			return err
+		}
+		if currentCaller == nil {
+			return xerr.NewError(xerr.CodeFailedPrecondition, "caller is no longer a project member")
+		}
+
+		switch currentCaller.Role {
+		case data.RoleOwner:
+		case data.RoleAdmin:
+			currentTarget, err := memberRepo.FindByProjectAndUser(ctx, projectID, targetUserID)
+			if err != nil {
+				return err
+			}
+			if currentTarget == nil {
+				return xerr.NewError(xerr.CodeNotFound, "target user is no longer a member")
+			}
+			if currentTarget.Role == data.RoleOwner || currentTarget.Role == data.RoleAdmin {
+				return xerr.NewError(xerr.CodePermissionDenied, "admin cannot remove owner or other admins")
+			}
+		default:
+			return xerr.NewError(xerr.CodePermissionDenied, "no permission to remove members")
+		}
+
+		if err := memberRepo.Remove(ctx, projectID, targetUserID); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 	b.logWriter.Enqueue(ctx, &data.OperationLog{

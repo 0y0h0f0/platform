@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-packages="$(go list ./internal/... ./pkg/... 2>/dev/null || true)"
+packages="$(go list ./internal/... ./pkg/... 2>&1 || true)"
 if [[ -z "${packages}" ]]; then
   echo "no coverage packages found"
   exit 0

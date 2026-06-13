@@ -31,8 +31,8 @@
 - 鉴权：JWT（HS256，仅 access token，过期 2h；`user-service` 签发，仅 `api-gateway` 做验签；内部服务不再二次校验 JWT，只校验网关注入的 `x-internal-token`、`x-request-id`，以及匿名 RPC 之外必填的 `x-user-id`、`x-username`）
 - 密码哈希：bcrypt (cost=10)
 - 日志：Zap（JSON 编码，按 request_id 串联）
-- 可观测性：Prometheus + OpenTelemetry
-- 容器编排：Docker Compose
+- 可观测性：Prometheus + OpenTelemetry (Jaeger) + Loki (日志聚合) + Grafana
+- 容器编排：Docker Compose + Kubernetes (Kustomize)
 - 测试：`go test` + `testify` + `httptest` + `testcontainers-go`（集成测试拉真实 PG/Redis）
 - 静态检查：`golangci-lint`
 - CI：GitHub Actions（lint + 单测 + 集成测试 + 覆盖率门槛 + `buf lint`）
@@ -42,7 +42,7 @@
 - gRPC 能体现内部服务调用、接口契约、状态码和超时控制。
 - PostgreSQL 适合展示关系建模、事务、索引、`jsonb`、`timestamptz`。
 - Redis 可用于登录态、热点缓存和简单限流，能补足工程亮点。
-- Docker Compose 适合本地一键启动，便于项目交付和面试展示。
+- Docker Compose 适合本地一键启动，便于项目交付和面试展示。Kubernetes 部署清单位于 deploy/k8s/，用于生产级容器编排。
 
 ## 3. 项目范围
 
@@ -723,7 +723,8 @@ task-platform/
 #### 任务
 - 补齐 HTTP/gRPC 请求耗时直方图、错误率计数器、DB/Redis 调用指标
 - 接 OpenTelemetry Trace（gateway → service → DB 全链路），补齐 trace_id 字段贯穿与日志串联
-- 增加 Grafana 仪表盘并截图存档（RED 指标 + DB 慢查询 + 缓存命中率）
+- 接入 Loki 日志聚合（Promtail 采集容器日志，Grafana 统一查询，trace-to-log 关联）
+- 增加 Grafana 仪表盘并截图存档（RED 指标 + DB 慢查询 + 缓存命中率 + 日志总览）
 - 用 `k6` 或 `vegeta` 编写压测脚本，定义并验证 SLO（建议：单机 1k QPS，登录接口 P99 < 100ms）
 - 整理压测报告（QPS / P50 / P99 / 错误率 / 资源占用）
 
@@ -768,6 +769,9 @@ task-platform/
 - SQL migration
 - proto 文件
 - Docker Compose 文件
+- Kubernetes 部署清单 (deploy/k8s/)
+- Loki + Promtail 日志采集配置
+- Dockerfile（多阶段构建）
 
 ### 文档交付
 - README

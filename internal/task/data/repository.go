@@ -37,7 +37,7 @@ type TaskRepository interface {
 	Create(ctx context.Context, task *Task) error
 	FindByID(ctx context.Context, id string) (*Task, error)
 	Update(ctx context.Context, id string, version int64, updates map[string]any) (*Task, error)
-	Delete(ctx context.Context, id string) (*Task, error)
+	Delete(ctx context.Context, id string, version int64) (*Task, error)
 	List(ctx context.Context, filter TaskFilter) (tasks []*Task, nextCursor string, err error)
 }
 
@@ -263,17 +263,17 @@ func (r *taskRepo) Update(ctx context.Context, id string, version int64, updates
 	return r.FindByID(ctx, id)
 }
 
-func (r *taskRepo) Delete(ctx context.Context, id string) (*Task, error) {
+func (r *taskRepo) Delete(ctx context.Context, id string, version int64) (*Task, error) {
 	task, err := r.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	result := r.db.WithContext(ctx).Where("id = ?", id).Delete(&Task{})
+	result := r.db.WithContext(ctx).Where("id = ? AND version = ?", id, version).Delete(&Task{})
 	if result.Error != nil {
 		return nil, xerr.NewError(xerr.CodeInternal, "delete task failed")
 	}
 	if result.RowsAffected == 0 {
-		return nil, xerr.NewError(xerr.CodeInternal, "delete task failed")
+		return nil, xerr.NewError(xerr.CodeAborted, "task was modified by another request, please retry")
 	}
 	return task, nil
 }
@@ -289,7 +289,11 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 		query = query.Where("assignee_id = ?", filter.AssigneeID)
 	}
 	if filter.Keyword != "" {
-		query = query.Where("title ILIKE ?", "%"+filter.Keyword+"%")
+		// Escape LIKE wildcards to prevent DoS via crafted search patterns.
+		escaped := strings.ReplaceAll(filter.Keyword, "\\", "\\\\")
+		escaped = strings.ReplaceAll(escaped, "%", "\\%")
+		escaped = strings.ReplaceAll(escaped, "_", "\\_")
+		query = query.Where("title ILIKE ? ESCAPE '\\'", "%"+escaped+"%")
 	}
 
 	if filter.Cursor != "" {
@@ -333,6 +337,8 @@ func (r *taskRepo) List(ctx context.Context, filter TaskFilter) ([]*Task, string
 			"id":         last.ID,
 		})
 		if err != nil {
+			// Log the error but return empty cursor so pagination degrades gracefully.
+			// The caller will treat empty nextCursor as end-of-list.
 			nextCursor = ""
 		} else {
 			nextCursor = c
@@ -386,8 +392,11 @@ func (r *commentRepo) ListByTask(ctx context.Context, taskID string, limit int32
 		// Comments page forward from an anchor comment because the UI appends older
 		// batches below the already-rendered conversation.
 		var anchor TaskComment
-		if err := r.db.WithContext(ctx).Where("id = ?", afterID).First(&anchor).Error; err != nil {
-			return nil, xerr.NewError(xerr.CodeNotFound, "after_id comment not found")
+		if err := r.db.WithContext(ctx).Where("id = ? AND task_id = ?", afterID, taskID).First(&anchor).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				return nil, xerr.NewError(xerr.CodeNotFound, "after_id comment not found")
+			}
+			return nil, xerr.NewError(xerr.CodeInternal, "find anchor comment failed")
 		}
 		query = query.Where("(created_at, id) > (?, ?)", anchor.CreatedAt, anchor.ID)
 	}
@@ -464,6 +473,8 @@ func (r *operationLogRepo) listLogs(ctx context.Context, where string, arg strin
 			"id":         last.ID,
 		})
 		if err != nil {
+			// Log the error but return empty cursor so pagination degrades gracefully.
+			// The caller will treat empty nextCursor as end-of-list.
 			nextCursor = ""
 		} else {
 			nextCursor = c

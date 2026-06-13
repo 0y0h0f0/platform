@@ -199,6 +199,9 @@ func (w *LogWriter) flushWithRetry(batch []*data.OperationLog) {
 		}
 		if i < logMaxRetries-1 {
 			time.Sleep(time.Duration(1<<uint(i)) * 100 * time.Millisecond)
+			if ctx.Err() != nil {
+				return
+			}
 		}
 	}
 	logWriterBatchFailure.Inc()

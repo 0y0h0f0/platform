@@ -4,7 +4,7 @@
 
 **团队任务协作平台** 是一个面向校招面试的 Go 微服务后端项目，完整演示了从用户认证、项目管理、任务协作到可观测性运维的分布式系统开发能力。
 
-项目规模控制在 **1 个 API Gateway + 2 个核心微服务**，采用 Gin + gRPC + PostgreSQL + Redis 技术栈，配有 Prometheus + Grafana + Jaeger 可观测性体系，单机验证 1000 QPS，测试覆盖率 80%+。
+项目规模控制在 **1 个 API Gateway + 2 个核心微服务**，采用 Gin + gRPC + PostgreSQL + Redis 技术栈，配有 Prometheus + Jaeger + Loki + Grafana 完整可观测性体系，支持 Docker Compose 和 Kubernetes 部署，单机验证 1000 QPS，测试覆盖率 80%+。
 
 ---
 
@@ -164,13 +164,14 @@ user_svc.users ────────┐
 
 ## 可观测性
 
-### 三件套
+### 可观测性套件
 
 | 组件 | 用途 |
 |------|------|
 | **Prometheus** | 指标采集：HTTP 请求（QPS/延迟/状态码）、gRPC 调用、DB/Redis 操作、限流计数 |
-| **Grafana** | 19 面板仪表盘：API 概览、服务健康、业务指标、资源使用 |
 | **Jaeger** | 分布式链路追踪：`gateway → gRPC → DB` 全链路 trace 可视化 |
+| **Loki** | 日志聚合：Promtail 采集容器日志，零应用代码改动，Grafana 统一查询 |
+| **Grafana** | 统一仪表盘：Prometheus 指标 + Jaeger 追踪 + Loki 日志，trace-to-log 双向关联 |
 
 ### 关键指标
 

@@ -36,7 +36,6 @@ export function CommentItem({
       <div className="comment-body">
         <Space className="comment-header" size={8} wrap>
           <Text strong>{displayName}</Text>
-          <Text type="secondary">{comment.user_id}</Text>
         </Space>
         <Paragraph className="comment-content">{comment.content}</Paragraph>
       </div>

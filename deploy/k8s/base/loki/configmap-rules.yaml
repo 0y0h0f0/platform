@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-rules
+  namespace: task-platform
+  labels:
+    app: loki
+    app.kubernetes.io/part-of: task-platform
+data:
+  rules.yml: |
+    groups:
+      - name: error_log_alerts
+        interval: 1m
+        rules:
+          - alert: HighErrorLogRate
+            expr: |
+              sum(rate({service=~"api-gateway|user-service|task-service"}
+                | json
+                | level =~ "(?i)error"[1m])) by (service) > 2
+            for: 3m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High ERROR log rate on {{ $labels.service }}"
+              description: "{{ $labels.service }} is producing {{ $value }} error logs/sec."
+
+          - alert: VeryHighErrorLogRate
+            expr: |
+              sum(rate({service=~"api-gateway|user-service|task-service"}
+                | json
+                | level =~ "(?i)error"[1m])) by (service) > 20
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "Very high ERROR log rate on {{ $labels.service }}"
+              description: "{{ $labels.service }} is producing {{ $value }} error logs/sec — possible cascading failure."

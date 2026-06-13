@@ -2,6 +2,7 @@ package biz
 
 import (
 	"context"
+	"strconv"
 
 	"gorm.io/gorm"
 
@@ -139,8 +140,18 @@ func (b *TaskBiz) UpdateTask(ctx context.Context, taskID, callerID, title, conte
 	if title != "" {
 		updates["title"] = title
 	}
-	updates["content"] = content
-	updates["priority"] = priority
+	if content != "" {
+		updates["content"] = content
+	}
+	// Only update priority when a valid non-zero value is explicitly provided.
+	// Proto3 zero means "not set", which cannot be distinguished from priority=0 (low).
+	// Callers that wish to set priority to low must explicitly pass 0 with an update mask.
+	if priority != 0 {
+		if !data.IsValidPriority(priority) {
+			return nil, xerr.NewError(xerr.CodeInvalidArgument, "priority must be 0-3 (low, normal, high, urgent)")
+		}
+		updates["priority"] = priority
+	}
 	if dueTime != "" {
 		updates["due_time"] = dueTime
 	}
@@ -195,7 +206,7 @@ func (b *TaskBiz) DeleteTask(ctx context.Context, taskID, callerID string) (*dat
 		}
 	}
 
-	deleted, err := b.taskRepo.Delete(ctx, taskID)
+	deleted, err := b.taskRepo.Delete(ctx, taskID, task.Version)
 	if err != nil {
 		return nil, err
 	}
@@ -222,7 +233,7 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 
 	statusStr := ""
 	if filter.Status != nil {
-		statusStr = string(rune(*filter.Status + '0'))
+		statusStr = strconv.Itoa(int(*filter.Status))
 	}
 	filterHash := xcursor.ComputeFilterHash(projectID, statusStr, filter.AssigneeID, filter.Keyword)
 
@@ -266,6 +277,7 @@ func (b *TaskBiz) ListTasks(ctx context.Context, projectID, callerID string, fil
 			var encErr error
 			nextCursor, encErr = xcursor.EncodeCursor(fields)
 			if encErr != nil {
+				// Degrade gracefully — the caller will treat empty nextCursor as end-of-list.
 				nextCursor = ""
 			}
 		}

@@ -33,6 +33,9 @@ func (b *CommentBiz) CreateComment(ctx context.Context, taskID, callerID, conten
 	if content == "" {
 		return nil, xerr.NewError(xerr.CodeInvalidArgument, "comment content is required")
 	}
+	if !data.IsValidContent(content) {
+		return nil, xerr.NewError(xerr.CodeInvalidArgument, "comment content must be at most 10000 characters")
+	}
 
 	task, _, err := b.getTaskAndMemberForWrite(ctx, taskID, callerID)
 	if err != nil {

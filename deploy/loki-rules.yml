@@ -1,0 +1,35 @@
+# Loki ruler rules for task-platform
+# Evaluated by Loki's built-in ruler, alerts forwarded to Alertmanager.
+#
+# In single-tenant mode (auth_enabled: false), these must be placed under
+# the "fake" tenant directory: <rule_path>/fake/rules.yml
+#
+# Ref: https://grafana.com/docs/loki/latest/alert/
+
+groups:
+  - name: error_log_alerts
+    interval: 1m
+    rules:
+      - alert: HighErrorLogRate
+        expr: |
+          sum(rate({service=~"api-gateway|user-service|task-service"}
+            | json
+            | level =~ "(?i)error"[1m])) by (service) > 2
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High ERROR log rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} is producing {{ $value }} error logs/sec. Check Grafana Loki dashboard for detailed log streams."
+
+      - alert: VeryHighErrorLogRate
+        expr: |
+          sum(rate({service=~"api-gateway|user-service|task-service"}
+            | json
+            | level =~ "(?i)error"[1m])) by (service) > 20
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Very high ERROR log rate on {{ $labels.service }}"
+          description: "{{ $labels.service }} is producing {{ $value }} error logs/sec — possible cascading failure. Investigate immediately."

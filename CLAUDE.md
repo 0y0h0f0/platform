@@ -6,12 +6,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **All phases complete (Phase 0–6).**
 
-Key metrics as of 2026-05-21:
+Key metrics as of 2026-06-10:
 - `go build ./cmd/...` — all services compile
 - `make lint` — 0 issues (golangci-lint v2.12.2, Go 1.26.3)
 - `go test ./...` — all passing (unit + integration)
 - Coverage — 80.2% (`./internal/... ./pkg/...`)
 - Integration tests — 74 tests (full E2E + gRPC integration), real PG16 + Redis7 via testcontainers
+- Observability — Prometheus + Jaeger + Loki + Grafana, Docker Compose + Kubernetes deployment
 
 ## Architecture (from `plan.md` §4)
 
@@ -106,7 +107,7 @@ task-platform/
 ├── configs/{local,dev,docker}/
 ├── migrations/               # SQL migrations per schema
 ├── scripts/                  # run-migrations.sh, seed.sh
-├── deploy/{docker-compose.yml,prometheus.yml,grafana/}
+├── deploy/{docker-compose.yml,prometheus.yml,loki-config.yaml,promtail-config.yaml,grafana/,k8s/}
 ├── test/
 ├── .env.example              # placeholder for secrets; .env is gitignored
 └── README.md
@@ -116,7 +117,7 @@ Each business service follows the same four-layer split: `biz` (domain logic) �
 
 ## Tech Stack (fixed by `plan.md` §2.1)
 
-Go 1.26 · Gin · gRPC + protobuf (proto3) · `buf` (lint + breaking-change + codegen) · PostgreSQL 16 · Redis 7 · GORM (`gorm.io/driver/postgres`) · pgx/v5 driver · `golang-migrate` · Viper (YAML + env-var override, multi-env dirs) · JWT HS256 · bcrypt (cost=10) · Zap (JSON, request_id-linked) · Prometheus + OpenTelemetry · Docker Compose · `go test` + `testify` + `httptest` + `testcontainers-go` (integration tests against real PG/Redis) · `golangci-lint` v2.12.2 (config `.golangci.yaml`) · GitHub Actions CI.
+Go 1.26 · Gin · gRPC + protobuf (proto3) · `buf` (lint + breaking-change + codegen) · PostgreSQL 16 · Redis 7 · GORM (`gorm.io/driver/postgres`) · pgx/v5 driver · `golang-migrate` · Viper (YAML + env-var override, multi-env dirs) · JWT HS256 · bcrypt (cost=10) · Zap (JSON, request_id-linked) · Prometheus + OpenTelemetry (Jaeger) · Loki + Promtail (log aggregation) · Grafana · Docker Compose · Kubernetes (Kustomize, deploy/k8s/) · `go test` + `testify` + `httptest` + `testcontainers-go` (integration tests against real PG/Redis) · `golangci-lint` v2.12.2 (config `.golangci.yaml`) · GitHub Actions CI.
 
 Do not introduce alternatives (e.g. Echo, sqlx, MySQL, logrus, sqlc) without an explicit reason — the stack is part of the project's interview narrative.
 
