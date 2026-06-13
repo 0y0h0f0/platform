@@ -3,7 +3,7 @@ kind: Kustomization
 namespace: task-platform
 resources:
 - namespace.yaml
-- secrets.yaml
+- secrets.yaml.example
 - postgres/service.yaml
 - postgres/pvc.yaml
 - postgres/statefulset.yaml

@@ -22,3 +22,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+stats.html
+test-results/
+mockServiceWorker.js
+.env.production
+.env.development
