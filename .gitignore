@@ -1,5 +1,5 @@
 .env
-coverage.out
+coverage*.out
 bin/
 .DS_Store
 .idea/
@@ -13,3 +13,4 @@ user-service
 task-service
 seed-users
 server.test
+ans.md
